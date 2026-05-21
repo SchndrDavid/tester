@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tester</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0a0a0a;
+    color: #e5e7eb;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  button { font-family: inherit; }
+  kbd {
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+    color: #d1d5db;
+    margin: 0 2px;
+  }
+  code {
+    background: #1f2937;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: #fbbf24;
+  }
+  pre code { background: transparent; padding: 0; color: #e5e7eb; }
+  input, textarea {
+    font-family: inherit;
+  }
+  input:focus, textarea:focus {
+    border-color: #3b82f6 !important;
+  }
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    color: #9ca3af;
+  }
+</style>
+</head>
+<body>
+<div id="root"><div class="loading">Načítání...</div></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const STORAGE_KEY = 'tester_sets_v2';
+
+// --- Jednoduché ikony jako SVG inline ---
+const Icon = ({ children, size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    {children}
+  </svg>
+);
+const IconUpload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></Icon>;
+const IconFile = (p) => <Icon {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></Icon>;
+const IconTrash = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></Icon>;
+const IconPlay = (p) => <Icon {...p}><polygon points="5 3 19 12 5 21 5 3"/></Icon>;
+const IconReset = (p) => <Icon {...p}><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></Icon>;
+const IconChevronLeft = (p) => <Icon {...p}><polyline points="15 18 9 12 15 6"/></Icon>;
+const IconChevronRight = (p) => <Icon {...p}><polyline points="9 18 15 12 9 6"/></Icon>;
+const IconCheck = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12"/></Icon>;
+const IconAlert = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></Icon>;
+const IconX = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
+
+// --- Parser pro formát VŠE Testeru ---
+const parseText = (text) => {
+  const lines = text.split('\n');
+  const questions = [];
+  const errors = [];
+  let currentQuestion = null;
+
+  lines.forEach((rawLine, idx) => {
+    const line = rawLine.trim();
+    
+    if (!line) {
+      if (currentQuestion && currentQuestion.options.length > 0) {
+        questions.push(currentQuestion);
+        currentQuestion = null;
+      }
+      return;
+    }
+
+    if (line.startsWith('+') || line.startsWith('-')) {
+      if (!currentQuestion) {
+        errors.push(`Řádek ${idx + 1}: Odpověď bez předchozí otázky.`);
+        return;
+      }
+      const isCorrect = line.startsWith('+');
+      const ansText = line.substring(1).trim();
+      currentQuestion.options.push({ text: ansText, isCorrect });
+    } else {
+      if (currentQuestion) {
+        if (currentQuestion.options.length > 0) {
+          questions.push(currentQuestion);
+        } else {
+          errors.push(`Řádek ${idx}: Otázka nemá žádné odpovědi a byla přeskočena.`);
+        }
+      }
+      currentQuestion = { question: line, options: [] };
+    }
+  });
+
+  if (currentQuestion && currentQuestion.options.length > 0) {
+    questions.push(currentQuestion);
+  } else if (currentQuestion) {
+    errors.push(`Poslední otázka nemá žádné odpovědi.`);
+  }
+
+  return { questions, errors };
+};
+
+function countStats(cards) {
+  const stats = { correct: 0, partial: 0, wrong: 0, unanswered: 0 };
+  cards.forEach((c) => {
+    if (c.status === 'correct') stats.correct++;
+    else if (c.status === 'partial') stats.partial++;
+    else if (c.status === 'wrong') stats.wrong++;
+    else stats.unanswered++;
+  });
+  return stats;
+}
+
+// --- App ---
+function FlashcardsApp() {
+  const [tab, setTab] = useState('home');
+  const [sets, setSets] = useState([]);
+  const [studyId, setStudyId] = useState(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setSets(JSON.parse(raw));
+    } catch (e) { console.error(e); }
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(sets)); }
+    catch (e) { console.error(e); }
+  }, [sets]);
+
+  const addSet = (name, questions) => {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const newSet = {
+      id, name,
+      cards: questions.map((q, i) => ({ ...q, id: `${id}_${i}`, status: 'unanswered' })),
+      createdAt: new Date().toISOString(),
+    };
+    setSets((prev) => [newSet, ...prev]);
+    return id;
+  };
+
+  const deleteSet = (id) => {
+    setSets((prev) => prev.filter((s) => s.id !== id));
+    if (studyId === id) setStudyId(null);
+  };
+
+  const updateCardStatus = (setId, cardIdx, status) => {
+    setSets((prev) => prev.map((s) => {
+      if (s.id !== setId) return s;
+      const cards = s.cards.map((c, i) => i === cardIdx ? { ...c, status } : c);
+      return { ...s, cards };
+    }));
+  };
+
+  const resetSet = (id) => {
+    setSets((prev) => prev.map((s) => {
+      if (s.id !== id) return s;
+      return { ...s, cards: s.cards.map((c) => ({ ...c, status: 'unanswered' })) };
+    }));
+  };
+
+  const studyingSet = studyId ? sets.find((s) => s.id === studyId) : null;
+
+  if (studyingSet) {
+    return (
+      <StudyView
+        set={studyingSet}
+        onExit={() => setStudyId(null)}
+        onStatusChange={(idx, status) => updateCardStatus(studyingSet.id, idx, status)}
+        onReset={() => resetSet(studyingSet.id)}
+      />
+    );
+  }
+
+  return (
+    <div style={s.app}>
+      <Header tab={tab} onTabChange={setTab} />
+      <main style={s.main}>
+        {tab === 'home' && <HomeTab onCreate={addSet} onGoToSets={() => setTab('mysets')} hasSets={sets.length > 0} />}
+        {tab === 'mysets' && <MySetsTab sets={sets} onStudy={setStudyId} onDelete={deleteSet} onReset={resetSet} onCreate={() => setTab('home')} />}
+        {tab === 'guide' && <GuideTab />}
+      </main>
+    </div>
+  );
+}
+
+function Header({ tab, onTabChange }) {
+  const tabs = [
+    { id: 'home', label: 'Domů' },
+    { id: 'mysets', label: 'Moje testy' },
+    { id: 'guide', label: 'Návod' },
+  ];
+  return (
+    <header style={s.header}>
+      <div style={s.headerInner}>
+        <div style={s.logo}>Tester</div>
+        <nav style={s.nav}>
+          {tabs.map((t) => (
+            <button key={t.id} onClick={() => onTabChange(t.id)}
+              style={{ ...s.navBtn, color: tab === t.id ? '#fff' : '#9ca3af', fontWeight: tab === t.id ? 600 : 400 }}>
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+    </header>
+  );
+}
+
+function HomeTab({ onCreate, onGoToSets, hasSets }) {
+  const [name, setName] = useState('');
+  const [text, setText] = useState('');
+  const [parsed, setParsed] = useState(null);
+  const [errors, setErrors] = useState([]);
+  const fileRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const updateParse = (newText) => {
+    setText(newText);
+    if (!newText.trim()) { setParsed(null); setErrors([]); return; }
+    const { questions, errors } = parseText(newText);
+    setParsed(questions);
+    setErrors(errors);
+  };
+
+  const insertTextTemplate = (prefix) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const currentText = textarea.value;
+    const before = currentText.substring(0, start);
+    const after = currentText.substring(end);
+    const symbol = before.endsWith('\n') || before === '' ? prefix : `\n${prefix}`;
+    const newText = before + symbol + after;
+    updateParse(newText);
+    
+    setTimeout(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + symbol.length;
+    }, 0);
+  };
+
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!name.trim()) setName(file.name.replace(/\.[^.]+$/, ''));
+    const reader = new FileReader();
+    reader.onload = (ev) => updateParse(String(ev.target?.result || ''));
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleCreate = () => {
+    if (!parsed || parsed.length === 0) return;
+    const setName = name.trim() || `Test ${new Date().toLocaleDateString('cs-CZ')}`;
+    onCreate(setName, parsed);
+    
+    alert(`Test "${setName}" byl úspěšně vytvořen!`);
+    
+    setName(''); setText(''); setParsed(null); setErrors([]);
+    if (fileRef.current) fileRef.current.value = '';
+    onGoToSets();
+  };
+
+  return (
+    <div style={s.container}>
+      <h1 style={s.h1}>Vložit nový test</h1>
+      <p style={s.subtitle}>Nahrajte .txt soubor nebo vložte text ve formátu s + a -</p>
+
+      <div style={s.card}>
+        <label style={s.label}>Název testu</label>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+          placeholder="např. Mikroekonomie I - Zkouška" style={s.input} />
+
+        <div style={{ marginTop: 20 }}>
+          <label style={s.label}>Nahrát soubor</label>
+          <div style={s.fileRow}>
+            <button onClick={() => fileRef.current?.click()} style={s.fileBtn}>
+              <IconUpload />Vybrat .txt
+            </button>
+            <input ref={fileRef} type="file" accept=".txt,.csv,.md" onChange={handleFile} style={{ display: 'none' }} />
+            <span style={s.fileHint}>nebo vložte text ručně níže</span>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 }}>
+            <label style={{ ...s.label, margin: 0 }}>Text otázek</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button type="button" onClick={() => insertTextTemplate('+ ')} style={s.formatBtn}>+ Správná odpověď</button>
+              <button type="button" onClick={() => insertTextTemplate('- ')} style={s.formatBtn}>- Špatná odpověď</button>
+            </div>
+          </div>
+          <textarea ref={textareaRef} value={text} onChange={(e) => updateParse(e.target.value)}
+            placeholder={`Text první otázky
++ první správná odpověď
+- první špatná odpověď
+- druhá špatná odpověď
+
+Text druhé otázky
+- první špatná odpověď
++ první správná odpověď
++ druhá správná odpověď`}
+            style={s.textarea} spellCheck={false} />
+        </div>
+
+        {parsed !== null && (
+          <div style={s.parseStatus}>
+            <div style={s.parseStatusRow}>
+              <IconCheck size={16} />
+              <span><strong>{parsed.length}</strong> otázek nalezeno</span>
+            </div>
+            {errors.length > 0 && (
+              <div style={{ ...s.parseStatusRow, color: '#f59e0b', marginTop: 8 }}>
+                <IconAlert size={16} />
+                <span>Varování: {errors.slice(0, 2).join('; ')}{errors.length > 2 ? ` (+${errors.length - 2})` : ''}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {parsed && parsed.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={s.previewTitle}>Náhled prvních otázek</div>
+            {parsed.slice(0, 2).map((q, i) => (
+              <div key={i} style={s.previewCard}>
+                <div style={{ color: '#fff', fontWeight: 600, marginBottom: 8 }}>{q.question}</div>
+                {q.options.map((opt, j) => (
+                  <div key={j} style={{ color: opt.isCorrect ? '#22c55e' : '#ef4444', marginLeft: 12 }}>
+                    {opt.isCorrect ? '+ ' : '- '} {opt.text}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {parsed.length > 2 && <div style={s.previewMore}>... a {parsed.length - 2} dalších</div>}
+          </div>
+        )}
+
+        <button onClick={handleCreate} disabled={!parsed || parsed.length === 0}
+          style={{ ...s.primaryBtn, opacity: (!parsed || parsed.length === 0) ? 0.4 : 1, cursor: (!parsed || parsed.length === 0) ? 'not-allowed' : 'pointer', marginTop: 24 }}>
+          Vytvořit test
+        </button>
+      </div>
+
+      {hasSets && (
+        <div style={{ marginTop: 16, textAlign: 'center' }}>
+          <button onClick={onGoToSets} style={s.linkBtn}>Zobrazit moje testy →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MySetsTab({ sets, onStudy, onDelete, onReset, onCreate }) {
+  if (sets.length === 0) {
+    return (
+      <div style={s.container}>
+        <div style={s.emptyState}>
+          <IconFile size={48} />
+          <h2 style={{ ...s.h2, marginTop: 16 }}>Zatím žádné testy</h2>
+          <p style={s.subtitle}>Nahrajte soubor s otázkami a začněte se učit.</p>
+          <button onClick={onCreate} style={{ ...s.primaryBtn, marginTop: 16, width: 'auto', padding: '12px 24px' }}>Nahrát test</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={s.container}>
+      <h1 style={s.h1}>Moje testy</h1>
+      <p style={s.subtitle}>{sets.length} {sets.length === 1 ? 'test' : sets.length < 5 ? 'testy' : 'testů'} uloženo</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {sets.map((set) => {
+          const stats = countStats(set.cards);
+          return (
+            <div key={set.id} style={s.setCard}>
+              <div style={s.setHeader}>
+                <div>
+                  <h3 style={s.setName}>{set.name}</h3>
+                  <div style={s.setMeta}>{set.cards.length} otázek · {new Date(set.createdAt).toLocaleDateString('cs-CZ')}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => onStudy(set.id)} style={s.studyBtn}>
+                    <IconPlay size={14} />Testovat se
+                  </button>
+                  <button onClick={() => { if (confirm(`Smazat test "${set.name}"?`)) onDelete(set.id); }} style={s.iconBtn} title="Smazat">
+                    <IconTrash size={14} />
+                  </button>
+                </div>
+              </div>
+
+              <div style={s.statBar}>
+                <StatPill label="Správně" count={stats.correct} color="#22c55e" />
+                <StatPill label="Částečně" count={stats.partial} color="#f59e0b" />
+                <StatPill label="Špatně" count={stats.wrong} color="#ef4444" />
+                <StatPill label="Neodp." count={stats.unanswered} color="#6b7280" />
+              </div>
+
+              <CardGrid cards={set.cards} compact />
+
+              {stats.correct + stats.partial + stats.wrong > 0 && (
+                <button onClick={() => { if (confirm('Resetovat všechny odpovědi v tomto testu?')) onReset(set.id); }} style={s.resetLink}>
+                  <IconReset size={12} />Resetovat postup
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StatPill({ label, count, color }) {
+  return (
+    <div style={{ ...s.statPill, borderColor: color + '40' }}>
+      <span style={{ ...s.statDot, background: color }} />
+      <span style={{ color: '#9ca3af' }}>{label}</span>
+      <span style={{ fontWeight: 600, color }}>{count}</span>
+    </div>
+  );
+}
+
+function CardGrid({ cards, activeIdx, onJump, compact = false }) {
+  const colorFor = (status) => {
+    if (status === 'correct') return '#22c55e';
+    if (status === 'partial') return '#f59e0b';
+    if (status === 'wrong') return '#ef4444';
+    return '#374151';
+  };
+  const size = compact ? 9 : 12;
+  const gap = compact ? 4 : 6;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap, marginTop: compact ? 12 : 0 }}>
+      {cards.map((c, i) => {
+        const isActive = activeIdx === i;
+        return (
+          <button key={i} onClick={() => onJump && onJump(i)} disabled={!onJump}
+            title={`Otázka ${i + 1}`}
+            style={{
+              width: size, height: size, borderRadius: '50%',
+              background: colorFor(c.status),
+              border: isActive ? '2px solid #fff' : '2px solid transparent',
+              cursor: onJump ? 'pointer' : 'default', padding: 0,
+              boxShadow: isActive ? '0 0 0 2px #3b82f6' : 'none',
+            }} />
+        );
+      })}
+    </div>
+  );
+}
+
+function StudyView({ set, onExit, onStatusChange, onReset }) {
+  const [idx, setIdx] = useState(0);
+  const [selectedOptions, setSelectedOptions] = useState([]);
+  const [evaluated, setEvaluated] = useState(false);
+  const [aiCopied, setAiCopied] = useState(false);
+
+  useEffect(() => { 
+    setSelectedOptions([]); 
+    setEvaluated(false); 
+    setAiCopied(false);
+  }, [idx]);
+
+  const card = set.cards[idx];
+  const stats = countStats(set.cards);
+  const total = set.cards.length;
+  const answered = stats.correct + stats.partial + stats.wrong;
+  const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
+
+  const next = useCallback(() => { setIdx((i) => Math.min(i + 1, total - 1)); }, [total]);
+  const prev = useCallback(() => { setIdx((i) => Math.max(i - 1, 0)); }, []);
+
+  const jumpToRandom = () => {
+    if (total <= 1) return;
+    let rand = idx;
+    while (rand === idx) {
+      rand = Math.floor(Math.random() * total);
+    }
+    setIdx(rand);
+  };
+
+  const toggleOption = (optIdx) => {
+    if (evaluated) return;
+    setSelectedOptions(prev => 
+      prev.includes(optIdx) ? prev.filter(i => i !== optIdx) : [...prev, optIdx]
+    );
+  };
+
+  const handleEvaluate = useCallback(() => {
+    if (evaluated) {
+      next();
+      return;
+    }
+    
+    let correctTotal = 0;
+    let selectedCorrect = 0;
+    let selectedWrong = 0;
+
+    card.options.forEach((opt, i) => {
+      if (opt.isCorrect) correctTotal++;
+      if (selectedOptions.includes(i)) {
+        if (opt.isCorrect) selectedCorrect++;
+        else selectedWrong++;
+      }
+    });
+
+    let status = 'wrong';
+    if (selectedWrong === 0 && selectedCorrect === correctTotal && correctTotal > 0) {
+      status = 'correct';
+    } else if (selectedWrong === 0 && selectedCorrect > 0) {
+      status = 'partial';
+    } else if (selectedOptions.length === 0) {
+      status = 'wrong';
+    }
+
+    onStatusChange(idx, status);
+    setEvaluated(true);
+  }, [evaluated, card, selectedOptions, idx, onStatusChange, next]);
+
+  // Generování a uložení promptu pro AI do schránky
+  const copyAiPrompt = () => {
+    let promptText = `Ahoj, potřebuji vysvětlit následující otázku z testu:\n\n`;
+    promptText += `Otázka: ${card.question}\n\n`;
+    promptText += `Možnosti:\n`;
+    card.options.forEach((opt, i) => {
+      const isSelected = selectedOptions.includes(i);
+      promptText += `${opt.isCorrect ? '[SPRÁVNÁ]' : '[ŠPATNÁ]'} — ${opt.text} ${isSelected ? '(Tuto možnost jsem ZAŠKRTL)' : '(Tuto možnost jsem NEZAŠKRTL)'}\n`;
+    });
+    
+    let correctTotal = 0;
+    let selectedCorrect = 0;
+    let selectedWrong = 0;
+    card.options.forEach((opt, i) => {
+      if (opt.isCorrect) correctTotal++;
+      if (selectedOptions.includes(i)) {
+        if (opt.isCorrect) selectedCorrect++;
+        else selectedWrong++;
+      }
+    });
+    const currentStatus = (selectedWrong === 0 && selectedCorrect === correctTotal && correctTotal > 0) ? 'correct' : ((selectedWrong === 0 && selectedCorrect > 0) ? 'partial' : 'wrong');
+
+    promptText += `\nMoje odpověď byla vyhodnocena jako: ${currentStatus === 'partial' ? 'ČÁSTEČNĚ SPRÁVNÁ (chybí mi některé správné možnosti)' : 'ŠPATNÁ'}.\n\n`;
+    promptText += `Můžeš mi prosím podrobně vysvětlit, proč je správná odpověď správná a proč ty ostatní (případně mnou zvolené špatné) jsou nesprávné?`;
+    
+    navigator.clipboard.writeText(promptText);
+    setAiCopied(true);
+    setTimeout(() => setAiCopied(false), 2500);
+  };
+
+  useEffect(() => {
+    const h = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); handleEvaluate(); }
+      else if (e.key === 'ArrowRight') next();
+      else if (e.key === 'ArrowLeft') prev();
+      else if (e.key === 'Escape') onExit();
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [evaluated, next, prev, handleEvaluate, onExit]);
+
+  // Výpočet stavu pro AI tlačítko
+  let isIncorrect = false;
+  if (evaluated) {
+    let correctTotal = 0;
+    let selectedCorrect = 0;
+    let selectedWrong = 0;
+    card.options.forEach((opt, i) => {
+      if (opt.isCorrect) correctTotal++;
+      if (selectedOptions.includes(i)) {
+        if (opt.isCorrect) selectedCorrect++;
+        else selectedWrong++;
+      }
+    });
+    const currentStatus = (selectedWrong === 0 && selectedCorrect === correctTotal && correctTotal > 0) ? 'correct' : ((selectedWrong === 0 && selectedCorrect > 0) ? 'partial' : 'wrong');
+    if (currentStatus === 'wrong' || currentStatus === 'partial') {
+      isIncorrect = true;
+    }
+  }
+
+  return (
+    <div style={s.app}>
+      <Header tab="mysets" onTabChange={() => onExit()} />
+      <main style={s.main}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <div style={s.studyTopRow}>
+            <button onClick={onExit} style={s.backBtn}>
+              <IconX size={16} />Ukončit
+            </button>
+            <div style={s.studyTitle}>{set.name}</div>
+            <div style={{ color: '#9ca3af', fontSize: 13 }}>Otázka {idx + 1} / {total}</div>
+          </div>
+
+          <div style={s.progressBar}>
+            <div style={{ ...s.progressFill, width: `${pct}%` }} />
+          </div>
+
+          <div style={s.studyLayout}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              
+              <div style={s.questionContainer}>
+                <div style={s.questionText}>{card.question}</div>
+                
+                <div style={s.optionsList}>
+                  {card.options.map((opt, i) => {
+                    const isSelected = selectedOptions.includes(i);
+                    let bg = '#1f2937';
+                    let borderColor = '#374151';
+                    let icon = null;
+
+                    if (evaluated) {
+                      if (opt.isCorrect && isSelected) {
+                        bg = '#14532d'; borderColor = '#22c55e';
+                        icon = <span style={{color: '#22c55e'}}>✓</span>;
+                      } else if (opt.isCorrect && !isSelected) {
+                        bg = '#1f2937'; borderColor = '#22c55e';
+                        icon = <span style={{color: '#22c55e'}}>✓</span>;
+                      } else if (!opt.isCorrect && isSelected) {
+                        bg = '#7f1d1d'; borderColor = '#ef4444';
+                        icon = <span style={{color: '#ef4444'}}>✗</span>;
+                      }
+                    } else if (isSelected) {
+                      bg = '#1e3a5f'; borderColor = '#3b82f6';
+                    }
+
+                    return (
+                      <div key={i} onClick={() => toggleOption(i)} style={{ ...s.optionItem, background: bg, borderColor }}>
+                         <div style={{...s.checkbox, borderColor: isSelected ? '#3b82f6' : '#6b7280', background: isSelected ? '#3b82f6' : 'transparent'}}>
+                            {isSelected && <IconCheck size={12} color="#fff"/>}
+                         </div>
+                         <div style={{ flex: 1 }}>{opt.text}</div>
+                         {evaluated && <div style={{width: 20, textAlign: 'center', fontWeight: 'bold'}}>{icon}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {isIncorrect && (
+                  <div style={{ marginTop: 24, display: 'flex', justifyContent: 'center' }}>
+                    <button onClick={copyAiPrompt} style={s.aiBtn}>
+                      {aiCopied ? '✨ Prompt zkopírován do schránky!' : '🤖 Zeptat se AI (Zkopírovat prompt)'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', marginTop: 24, gap: 12, flexWrap: 'wrap' }}>
+                <button onClick={prev} disabled={idx === 0} style={{ ...s.navIconBtn, opacity: idx === 0 ? 0.3 : 1 }}>
+                  <IconChevronLeft size={18} />Předchozí
+                </button>
+
+                <button onClick={jumpToRandom} style={s.navIconBtn} title="Skočit na náhodnou otázku">
+                  🎲 Náhodná otázka
+                </button>
+                
+                <div style={{ flex: 1, minWidth: 120, textAlign: 'center' }}>
+                  {!evaluated ? (
+                    <button onClick={handleEvaluate} style={s.evaluateBtn}>Vyhodnotit (Enter)</button>
+                  ) : (
+                    <button onClick={next} disabled={idx === total - 1} style={s.nextPrimaryBtn}>Další otázka (Enter)</button>
+                  )}
+                </div>
+
+                <button onClick={next} disabled={idx === total - 1} style={{ ...s.navIconBtn, opacity: idx === total - 1 ? 0.3 : 1 }}>
+                  Další<IconChevronRight size={18} />
+                </button>
+              </div>
+
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={s.statsBox}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{pct}%</span>
+                  <span style={{ color: '#9ca3af', fontSize: 13 }}>postup</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#22c55e' }} /><span>Správně</span><strong style={{ color: '#22c55e' }}>{stats.correct}</strong></div>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#f59e0b' }} /><span>Částečně</span><strong style={{ color: '#f59e0b' }}>{stats.partial}</strong></div>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#ef4444' }} /><span>Špatně</span><strong style={{ color: '#ef4444' }}>{stats.wrong}</strong></div>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#6b7280' }} /><span>Neodp.</span><strong style={{ color: '#9ca3af' }}>{stats.unanswered}</strong></div>
+                </div>
+              </div>
+
+              <div style={s.statsBox}>
+                <div style={{ fontSize: 12, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Mapa otázek</div>
+                <CardGrid cards={set.cards} activeIdx={idx} onJump={setIdx} />
+              </div>
+
+              <button onClick={() => { if (confirm('Resetovat všechny odpovědi?')) onReset(); }} style={s.resetBtn}>
+                <IconReset size={14} />Resetovat
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 24, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+            Zkratky: <kbd>Enter</kbd> vyhodnotit / další · <kbd>←</kbd> <kbd>→</kbd> navigace mezi otázkami · <kbd>Esc</kbd> ukončit
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function GuideTab() {
+  const example = `Text první otázky
++ první správná odpověď
+- první špatná odpověď
+- druhá špatná odpověď
+
+Text druhé otázky
+- první špatná odpověď
++ první správná odpověď
++ druhá správná odpověď`;
+
+  const [copied, setCopied] = useState(false);
+  const copyExample = () => {
+    navigator.clipboard.writeText(example);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div style={s.container}>
+      <h1 style={s.h1}>Návod</h1>
+      <p style={s.subtitle}>Jak nahrát otázky (Formát VŠE Testeru)</p>
+
+      <div style={s.card}>
+        <h2 style={s.h2}>1. Formát souboru</h2>
+        <p>Soubory je nutné nahrávat ve stejném formátu jako v aplikaci VŠE Tester.</p>
+        <ul>
+          <li>Struktura zahrnuje jednotlivé otázky a odpovědi na samostatných řádcích.</li>
+          <li><strong>Důležité:</strong> Otázku ani odpovědi nezalamujte na více řádků.</li>
+          <li>Správné odpovědi jsou označeny symbolem <code>+</code>.</li>
+          <li>Špatné odpovědi symbolem <code>-</code>.</li>
+          <li>Jednotlivé otázky oddělujte volným (prázdným) řádkem.</li>
+        </ul>
+      </div>
+
+      <div style={s.card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ ...s.h2, margin: 0 }}>2. Příklad</h2>
+          <button onClick={copyExample} style={s.smallBtn}>{copied ? 'Zkopírováno!' : 'Kopírovat'}</button>
+        </div>
+        <pre style={s.codeBlock}>{example}</pre>
+      </div>
+
+      <div style={s.card}>
+        <h2 style={s.h2}>3. Vyhodnocování</h2>
+        <p>V testu zaklikejte všechny odpovědi, o kterých si myslíte, že jsou správné. Pak klikněte na <strong>Vyhodnotit</strong> (nebo stiskněte Enter). Aplikace vám ukáže výsledek:</p>
+        <ul>
+          <li><span style={{ color: '#22c55e' }}><strong>Správně</strong></span> — Označili jste všechny správné možnosti a žádnou špatnou.</li>
+          <li><span style={{ color: '#f59e0b' }}><strong>Částečně</strong></span> — Označili jste jen některé ze správných možností, ale žádnou špatnou.</li>
+          <li><span style={{ color: '#ef4444' }}><strong>Špatně</strong></span> — Označili jste alespoň jednu špatnou odpověď, nebo jste neoznačili nic.</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// --- Styles ---
+const s = {
+  app: { minHeight: '100vh' },
+  header: { borderBottom: '1px solid #1f2937', background: '#0a0a0a', position: 'sticky', top: 0, zIndex: 10 },
+  headerInner: { maxWidth: 1200, margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 32 },
+  logo: { fontSize: 18, fontWeight: 700, color: '#fff' },
+  nav: { display: 'flex', gap: 24 },
+  navBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, padding: '4px 0' },
+  main: { maxWidth: 1200, margin: '0 auto', padding: '32px 24px' },
+  container: { maxWidth: 900, margin: '0 auto' },
+  h1: { fontSize: 28, fontWeight: 700, color: '#fff', margin: '0 0 8px' },
+  h2: { fontSize: 18, fontWeight: 600, color: '#fff', margin: '0 0 12px' },
+  subtitle: { color: '#9ca3af', margin: '0 0 24px' },
+  card: { background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 24, marginBottom: 16 },
+  label: { display: 'block', fontSize: 13, fontWeight: 500, color: '#9ca3af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' },
+  input: { width: '100%', background: '#0a0a0a', border: '1px solid #1f2937', borderRadius: 8, padding: '10px 14px', color: '#fff', fontSize: 14, outline: 'none' },
+  textarea: { width: '100%', minHeight: 250, background: '#0a0a0a', border: '1px solid #1f2937', borderRadius: 8, padding: '12px 14px', color: '#fff', fontSize: 13, fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', outline: 'none', resize: 'vertical' },
+  fileRow: { display: 'flex', alignItems: 'center', gap: 12 },
+  fileBtn: { display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: '8px 14px', color: '#fff', cursor: 'pointer', fontSize: 13 },
+  fileHint: { color: '#6b7280', fontSize: 13 },
+  formatBtn: { background: '#1f2937', border: '1px solid #374151', borderRadius: 6, padding: '4px 10px', color: '#fbbf24', cursor: 'pointer', fontSize: 12, fontWeight: 500 },
+  primaryBtn: { background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '12px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer', width: '100%' },
+  linkBtn: { background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer', fontSize: 14 },
+  smallBtn: { background: '#1f2937', border: '1px solid #374151', borderRadius: 6, padding: '6px 10px', color: '#fff', cursor: 'pointer', fontSize: 12 },
+  parseStatus: { marginTop: 16, padding: 12, background: '#0a0a0a', border: '1px solid #1f2937', borderRadius: 8 },
+  parseStatusRow: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#22c55e' },
+  previewTitle: { fontSize: 12, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 },
+  previewCard: { padding: '12px 16px', background: '#0a0a0a', border: '1px solid #1f2937', borderRadius: 8, marginBottom: 8, fontSize: 14 },
+  previewMore: { textAlign: 'center', color: '#6b7280', fontSize: 12, padding: 8 },
+  codeBlock: { background: '#0a0a0a', border: '1px solid #1f2937', borderRadius: 8, padding: 16, fontSize: 13, fontFamily: 'ui-monospace, monospace', overflow: 'auto', margin: '12px 0 0', whiteSpace: 'pre-wrap' },
+  emptyState: { textAlign: 'center', padding: '64px 24px', background: '#111827', border: '1px solid #1f2937', borderRadius: 12, color: '#9ca3af' },
+  setCard: { background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 20 },
+  setHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
+  setName: { fontSize: 16, fontWeight: 600, color: '#fff', margin: '0 0 4px' },
+  setMeta: { fontSize: 12, color: '#6b7280' },
+  studyBtn: { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 500 },
+  iconBtn: { background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: 8, color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center' },
+  statBar: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  statPill: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid', background: '#0a0a0a', fontSize: 12 },
+  statDot: { width: 8, height: 8, borderRadius: '50%', display: 'inline-block' },
+  resetLink: { display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 12, padding: '8px 0 0', marginTop: 8 },
+  studyTopRow: { display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 },
+  backBtn: { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: '6px 12px', color: '#9ca3af', cursor: 'pointer', fontSize: 13 },
+  studyTitle: { flex: 1, fontSize: 18, fontWeight: 600, color: '#fff' },
+  progressBar: { height: 4, background: '#1f2937', borderRadius: 999, overflow: 'hidden', marginBottom: 24 },
+  progressFill: { height: '100%', background: '#2563eb', transition: 'width 0.2s' },
+  studyLayout: { display: 'grid', gridTemplateColumns: '1fr 320px', gap: 24 },
+  questionContainer: { background: '#111827', border: '1px solid #374151', borderRadius: 16, padding: '32px', minHeight: 280, display: 'flex', flexDirection: 'column' },
+  questionText: { fontSize: 20, color: '#fff', fontWeight: 600, marginBottom: 24, lineHeight: 1.4 },
+  optionsList: { display: 'flex', flexDirection: 'column', gap: 10 },
+  optionItem: { display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '2px solid', borderRadius: 10, cursor: 'pointer', fontSize: 15, transition: 'all 0.15s ease' },
+  checkbox: { width: 20, height: 20, borderRadius: 6, border: '2px solid', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  navIconBtn: { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: '10px 16px', color: '#fff', cursor: 'pointer', fontSize: 14 },
+  evaluateBtn: { background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '12px 24px', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
+  nextPrimaryBtn: { background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, padding: '12px 24px', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
+  aiBtn: { background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer', transition: 'background 0.2s' },
+  statsBox: { background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 16 },
+  statsRow: { display: 'grid', gridTemplateColumns: '16px 1fr auto', alignItems: 'center', gap: 8, fontSize: 13, color: '#d1d5db' },
+  resetBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: '8px 14px', color: '#9ca3af', cursor: 'pointer', fontSize: 13 },
+};
+
+// Mobile responsive
+if (window.innerWidth < 768) {
+  s.studyLayout = { display: 'flex', flexDirection: 'column', gap: 16 };
+  s.main = { ...s.main, padding: '16px' };
+  s.questionContainer = { ...s.questionContainer, padding: '20px' };
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<FlashcardsApp />);
+</script>
+</body>
+</html>
