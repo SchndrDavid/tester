@@ -78,6 +78,14 @@ const IconCheck = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12"/></Icon>
 const IconAlert = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></Icon>;
 const IconX = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
 
+// Pomocná funkce pro zamíchání pole
+const shuffleArray = (array) => {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+};
+
 // --- Parser pro formát VŠE Testeru ---
 const parseText = (text) => {
   const lines = text.split('\n');
@@ -88,14 +96,17 @@ const parseText = (text) => {
   lines.forEach((rawLine, idx) => {
     const line = rawLine.trim();
     
+    // Zpracování prázdného řádku
     if (!line) {
       if (currentQuestion && currentQuestion.options.length > 0) {
+        shuffleArray(currentQuestion.options); // OPRAVA: Zamíchání před uložením u prázdného řádku
         questions.push(currentQuestion);
         currentQuestion = null;
       }
       return;
     }
 
+    // Zpracování odpovědí
     if (line.startsWith('+') || line.startsWith('-')) {
       if (!currentQuestion) {
         errors.push(`Řádek ${idx + 1}: Odpověď bez předchozí otázky.`);
@@ -104,9 +115,12 @@ const parseText = (text) => {
       const isCorrect = line.startsWith('+');
       const ansText = line.substring(1).trim();
       currentQuestion.options.push({ text: ansText, isCorrect });
+      
+    // Zpracování nové otázky
     } else {
       if (currentQuestion) {
         if (currentQuestion.options.length > 0) {
+          shuffleArray(currentQuestion.options); // Zamíchání, pokud rovnou následuje další otázka
           questions.push(currentQuestion);
         } else {
           errors.push(`Řádek ${idx}: Otázka nemá žádné odpovědi a byla přeskočena.`);
@@ -116,7 +130,9 @@ const parseText = (text) => {
     }
   });
 
+  // Uložení úplně poslední otázky na konci souboru
   if (currentQuestion && currentQuestion.options.length > 0) {
+    shuffleArray(currentQuestion.options); // Zamíchání poslední otázky
     questions.push(currentQuestion);
   } else if (currentQuestion) {
     errors.push(`Poslední otázka nemá žádné odpovědi.`);
@@ -506,12 +522,12 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
     setIdx(rand);
   };
 
-  const toggleOption = (optIdx) => {
+  const toggleOption = useCallback((optIdx) => {
     if (evaluated) return;
     setSelectedOptions(prev => 
       prev.includes(optIdx) ? prev.filter(i => i !== optIdx) : [...prev, optIdx]
     );
-  };
+  }, [evaluated]);
 
   const handleEvaluate = useCallback(() => {
     if (evaluated) {
@@ -580,10 +596,17 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
       else if (e.key === 'ArrowRight') next();
       else if (e.key === 'ArrowLeft') prev();
       else if (e.key === 'Escape') onExit();
+      // PŘIDÁNO: Volba možností pomocí čísel 1-9
+      else if (e.key >= '1' && e.key <= '9' && !evaluated) {
+        const index = parseInt(e.key, 10) - 1;
+        if (index >= 0 && index < card.options.length) {
+          toggleOption(index);
+        }
+      }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [evaluated, next, prev, handleEvaluate, onExit]);
+  }, [evaluated, next, prev, handleEvaluate, onExit, toggleOption, card.options.length]);
 
   // Výpočet stavu pro AI tlačítko
   let isIncorrect = false;
@@ -654,7 +677,10 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
                          <div style={{...s.checkbox, borderColor: isSelected ? '#3b82f6' : '#6b7280', background: isSelected ? '#3b82f6' : 'transparent'}}>
                             {isSelected && <IconCheck size={12} color="#fff"/>}
                          </div>
-                         <div style={{ flex: 1 }}>{opt.text}</div>
+                         <div style={{ flex: 1 }}>
+                           <kbd style={{ marginRight: 8, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#9ca3af' }}>{i + 1}</kbd>
+                           {opt.text}
+                         </div>
                          {evaluated && <div style={{width: 20, textAlign: 'center', fontWeight: 'bold'}}>{icon}</div>}
                       </div>
                     );
