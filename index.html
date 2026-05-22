@@ -497,12 +497,7 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
   const [selectedOptions, setSelectedOptions] = useState([]);
   const [evaluated, setEvaluated] = useState(false);
   const [aiCopied, setAiCopied] = useState(false);
-
-  useEffect(() => { 
-    setSelectedOptions([]); 
-    setEvaluated(false); 
-    setAiCopied(false);
-  }, [idx]);
+  const [currentOptions, setCurrentOptions] = useState([]); // Nový stav pro dynamické možnosti
 
   const card = set.cards[idx];
   const stats = countStats(set.cards);
@@ -522,6 +517,19 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
     setIdx(rand);
   };
 
+  // ZDE SE DĚJE KOUZLO: Při každé změně otázky (idx) se vezmou odpovědi a znovu se zamíchají
+  useEffect(() => { 
+    setSelectedOptions([]); 
+    setEvaluated(false); 
+    setAiCopied(false);
+    
+    if (card && card.options) {
+      const shuffled = [...card.options];
+      shuffleArray(shuffled);
+      setCurrentOptions(shuffled);
+    }
+  }, [idx, card]);
+
   const toggleOption = useCallback((optIdx) => {
     if (evaluated) return;
     setSelectedOptions(prev => 
@@ -539,7 +547,8 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
     let selectedCorrect = 0;
     let selectedWrong = 0;
 
-    card.options.forEach((opt, i) => {
+    // Počítáme ze zamíchaných možností (currentOptions)
+    currentOptions.forEach((opt, i) => {
       if (opt.isCorrect) correctTotal++;
       if (selectedOptions.includes(i)) {
         if (opt.isCorrect) selectedCorrect++;
@@ -558,14 +567,14 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
 
     onStatusChange(idx, status);
     setEvaluated(true);
-  }, [evaluated, card, selectedOptions, idx, onStatusChange, next]);
+  }, [evaluated, currentOptions, selectedOptions, idx, onStatusChange, next]);
 
-  // Generování a uložení promptu pro AI do schránky
   const copyAiPrompt = () => {
     let promptText = `Ahoj, potřebuji vysvětlit následující otázku z testu:\n\n`;
     promptText += `Otázka: ${card.question}\n\n`;
     promptText += `Možnosti:\n`;
-    card.options.forEach((opt, i) => {
+    
+    currentOptions.forEach((opt, i) => {
       const isSelected = selectedOptions.includes(i);
       promptText += `${opt.isCorrect ? '[SPRÁVNÁ]' : '[ŠPATNÁ]'} — ${opt.text} ${isSelected ? '(Tuto možnost jsem ZAŠKRTL)' : '(Tuto možnost jsem NEZAŠKRTL)'}\n`;
     });
@@ -573,7 +582,7 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
     let correctTotal = 0;
     let selectedCorrect = 0;
     let selectedWrong = 0;
-    card.options.forEach((opt, i) => {
+    currentOptions.forEach((opt, i) => {
       if (opt.isCorrect) correctTotal++;
       if (selectedOptions.includes(i)) {
         if (opt.isCorrect) selectedCorrect++;
@@ -596,25 +605,24 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
       else if (e.key === 'ArrowRight') next();
       else if (e.key === 'ArrowLeft') prev();
       else if (e.key === 'Escape') onExit();
-      // PŘIDÁNO: Volba možností pomocí čísel 1-9
       else if (e.key >= '1' && e.key <= '9' && !evaluated) {
         const index = parseInt(e.key, 10) - 1;
-        if (index >= 0 && index < card.options.length) {
+        // Volíme ze zamíchaných možností (currentOptions)
+        if (index >= 0 && index < currentOptions.length) {
           toggleOption(index);
         }
       }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [evaluated, next, prev, handleEvaluate, onExit, toggleOption, card.options.length]);
+  }, [evaluated, next, prev, handleEvaluate, onExit, toggleOption, currentOptions.length]);
 
-  // Výpočet stavu pro AI tlačítko
   let isIncorrect = false;
   if (evaluated) {
     let correctTotal = 0;
     let selectedCorrect = 0;
     let selectedWrong = 0;
-    card.options.forEach((opt, i) => {
+    currentOptions.forEach((opt, i) => {
       if (opt.isCorrect) correctTotal++;
       if (selectedOptions.includes(i)) {
         if (opt.isCorrect) selectedCorrect++;
@@ -651,7 +659,7 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
                 <div style={s.questionText}>{card.question}</div>
                 
                 <div style={s.optionsList}>
-                  {card.options.map((opt, i) => {
+                  {currentOptions.map((opt, i) => { // Nyní vykreslujeme currentOptions místo card.options
                     const isSelected = selectedOptions.includes(i);
                     let bg = '#1f2937';
                     let borderColor = '#374151';
