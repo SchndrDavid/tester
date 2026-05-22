@@ -517,7 +517,7 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
     setIdx(rand);
   };
 
-  // ZDE SE DĚJE KOUZLO: Při každé změně otázky (idx) se vezmou odpovědi a znovu se zamíchají
+// ZDE SE DĚJE KOUZLO: Při každé změně otázky (idx) se vezmou odpovědi a znovu se zamíchají
   useEffect(() => { 
     setSelectedOptions([]); 
     setEvaluated(false); 
@@ -528,7 +528,7 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
       shuffleArray(shuffled);
       setCurrentOptions(shuffled);
     }
-  }, [idx, card]);
+  }, [idx]); // OPRAVA: Sledujeme pouze změnu indexu (přepnutí na jinou otázku)
 
   const toggleOption = useCallback((optIdx) => {
     if (evaluated) return;
