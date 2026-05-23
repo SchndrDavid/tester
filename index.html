@@ -78,7 +78,6 @@ const IconCheck = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12"/></Icon>
 const IconAlert = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></Icon>;
 const IconX = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
 
-// Pomocná funkce pro zamíchání pole
 const shuffleArray = (array) => {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -86,7 +85,6 @@ const shuffleArray = (array) => {
   }
 };
 
-// --- Parser pro formát VŠE Testeru ---
 const parseText = (text) => {
   const lines = text.split('\n');
   const questions = [];
@@ -96,17 +94,15 @@ const parseText = (text) => {
   lines.forEach((rawLine, idx) => {
     const line = rawLine.trim();
     
-    // Zpracování prázdného řádku
     if (!line) {
       if (currentQuestion && currentQuestion.options.length > 0) {
-        shuffleArray(currentQuestion.options); // OPRAVA: Zamíchání před uložením u prázdného řádku
+        shuffleArray(currentQuestion.options);
         questions.push(currentQuestion);
         currentQuestion = null;
       }
       return;
     }
 
-    // Zpracování odpovědí
     if (line.startsWith('+') || line.startsWith('-')) {
       if (!currentQuestion) {
         errors.push(`Řádek ${idx + 1}: Odpověď bez předchozí otázky.`);
@@ -116,11 +112,10 @@ const parseText = (text) => {
       const ansText = line.substring(1).trim();
       currentQuestion.options.push({ text: ansText, isCorrect });
       
-    // Zpracování nové otázky
     } else {
       if (currentQuestion) {
         if (currentQuestion.options.length > 0) {
-          shuffleArray(currentQuestion.options); // Zamíchání, pokud rovnou následuje další otázka
+          shuffleArray(currentQuestion.options);
           questions.push(currentQuestion);
         } else {
           errors.push(`Řádek ${idx}: Otázka nemá žádné odpovědi a byla přeskočena.`);
@@ -130,9 +125,8 @@ const parseText = (text) => {
     }
   });
 
-  // Uložení úplně poslední otázky na konci souboru
   if (currentQuestion && currentQuestion.options.length > 0) {
-    shuffleArray(currentQuestion.options); // Zamíchání poslední otázky
+    shuffleArray(currentQuestion.options);
     questions.push(currentQuestion);
   } else if (currentQuestion) {
     errors.push(`Poslední otázka nemá žádné odpovědi.`);
@@ -152,7 +146,6 @@ function countStats(cards) {
   return stats;
 }
 
-// --- App ---
 function FlashcardsApp() {
   const [tab, setTab] = useState('home');
   const [sets, setSets] = useState([]);
@@ -497,7 +490,7 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
   const [selectedOptions, setSelectedOptions] = useState([]);
   const [evaluated, setEvaluated] = useState(false);
   const [aiCopied, setAiCopied] = useState(false);
-  const [currentOptions, setCurrentOptions] = useState([]); // Nový stav pro dynamické možnosti
+  const [currentOptions, setCurrentOptions] = useState([]);
 
   const card = set.cards[idx];
   const stats = countStats(set.cards);
@@ -517,7 +510,6 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
     setIdx(rand);
   };
 
-// ZDE SE DĚJE KOUZLO: Při každé změně otázky (idx) se vezmou odpovědi a znovu se zamíchají
   useEffect(() => { 
     setSelectedOptions([]); 
     setEvaluated(false); 
@@ -528,7 +520,7 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
       shuffleArray(shuffled);
       setCurrentOptions(shuffled);
     }
-  }, [idx]); // OPRAVA: Sledujeme pouze změnu indexu (přepnutí na jinou otázku)
+  }, [idx]);
 
   const toggleOption = useCallback((optIdx) => {
     if (evaluated) return;
@@ -547,7 +539,6 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
     let selectedCorrect = 0;
     let selectedWrong = 0;
 
-    // Počítáme ze zamíchaných možností (currentOptions)
     currentOptions.forEach((opt, i) => {
       if (opt.isCorrect) correctTotal++;
       if (selectedOptions.includes(i)) {
@@ -607,7 +598,6 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
       else if (e.key === 'Escape') onExit();
       else if (e.key >= '1' && e.key <= '9' && !evaluated) {
         const index = parseInt(e.key, 10) - 1;
-        // Volíme ze zamíchaných možností (currentOptions)
         if (index >= 0 && index < currentOptions.length) {
           toggleOption(index);
         }
@@ -659,21 +649,26 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
                 <div style={s.questionText}>{card.question}</div>
                 
                 <div style={s.optionsList}>
-                  {currentOptions.map((opt, i) => { // Nyní vykreslujeme currentOptions místo card.options
+                  {currentOptions.map((opt, i) => {
                     const isSelected = selectedOptions.includes(i);
                     let bg = '#1f2937';
                     let borderColor = '#374151';
                     let icon = null;
+                    
+                    let cbBg = isSelected ? '#3b82f6' : 'transparent';
+                    let cbBorder = isSelected ? '#3b82f6' : '#6b7280';
 
                     if (evaluated) {
                       if (opt.isCorrect && isSelected) {
                         bg = '#14532d'; borderColor = '#22c55e';
+                        cbBg = '#22c55e'; cbBorder = '#22c55e';
                         icon = <span style={{color: '#22c55e'}}>✓</span>;
                       } else if (opt.isCorrect && !isSelected) {
                         bg = '#1f2937'; borderColor = '#22c55e';
                         icon = <span style={{color: '#22c55e'}}>✓</span>;
                       } else if (!opt.isCorrect && isSelected) {
                         bg = '#7f1d1d'; borderColor = '#ef4444';
+                        cbBg = '#ef4444'; cbBorder = '#ef4444';
                         icon = <span style={{color: '#ef4444'}}>✗</span>;
                       }
                     } else if (isSelected) {
@@ -682,7 +677,7 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
 
                     return (
                       <div key={i} onClick={() => toggleOption(i)} style={{ ...s.optionItem, background: bg, borderColor }}>
-                         <div style={{...s.checkbox, borderColor: isSelected ? '#3b82f6' : '#6b7280', background: isSelected ? '#3b82f6' : 'transparent'}}>
+                         <div style={{...s.checkbox, borderColor: cbBorder, background: cbBg}}>
                             {isSelected && <IconCheck size={12} color="#fff"/>}
                          </div>
                          <div style={{ flex: 1 }}>
