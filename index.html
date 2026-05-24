@@ -77,6 +77,7 @@ const IconChevronRight = (p) => <Icon {...p}><polyline points="9 18 15 12 9 6"/>
 const IconCheck = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12"/></Icon>;
 const IconAlert = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></Icon>;
 const IconX = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
+const IconShuffle = (p) => <Icon {...p}><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></Icon>;
 
 const shuffleArray = (array) => {
   for (let i = array.length - 1; i > 0; i--) {
@@ -150,6 +151,7 @@ function FlashcardsApp() {
   const [tab, setTab] = useState('home');
   const [sets, setSets] = useState([]);
   const [studyId, setStudyId] = useState(null);
+  const [quickTestConfig, setQuickTestConfig] = useState(null);
 
   useEffect(() => {
     try {
@@ -194,6 +196,13 @@ function FlashcardsApp() {
     }));
   };
 
+  if (quickTestConfig) {
+    const qtSet = sets.find((s) => s.id === quickTestConfig.setId);
+    if (qtSet) {
+      return <QuickStudyView set={qtSet} count={quickTestConfig.count} onExit={() => setQuickTestConfig(null)} />;
+    }
+  }
+
   const studyingSet = studyId ? sets.find((s) => s.id === studyId) : null;
 
   if (studyingSet) {
@@ -212,7 +221,7 @@ function FlashcardsApp() {
       <Header tab={tab} onTabChange={setTab} />
       <main style={s.main}>
         {tab === 'home' && <HomeTab onCreate={addSet} onGoToSets={() => setTab('mysets')} hasSets={sets.length > 0} />}
-        {tab === 'mysets' && <MySetsTab sets={sets} onStudy={setStudyId} onDelete={deleteSet} onReset={resetSet} onCreate={() => setTab('home')} />}
+        {tab === 'mysets' && <MySetsTab sets={sets} onStudy={setStudyId} onDelete={deleteSet} onReset={resetSet} onCreate={() => setTab('home')} onQuickTest={(setId, count) => setQuickTestConfig({ setId, count })} />}
         {tab === 'guide' && <GuideTab />}
       </main>
     </div>
@@ -386,7 +395,9 @@ Text druhé otázky
   );
 }
 
-function MySetsTab({ sets, onStudy, onDelete, onReset, onCreate }) {
+function MySetsTab({ sets, onStudy, onDelete, onReset, onCreate, onQuickTest }) {
+  const [modalSetId, setModalSetId] = useState(null);
+
   if (sets.length === 0) {
     return (
       <div style={s.container}>
@@ -414,9 +425,12 @@ function MySetsTab({ sets, onStudy, onDelete, onReset, onCreate }) {
                   <h3 style={s.setName}>{set.name}</h3>
                   <div style={s.setMeta}>{set.cards.length} otázek · {new Date(set.createdAt).toLocaleDateString('cs-CZ')}</div>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => onStudy(set.id)} style={s.studyBtn}>
-                    <IconPlay size={14} />Testovat se
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={() => setModalSetId(set.id)} style={s.testBtn}>
+                    <IconShuffle size={14} />Testovat se
+                  </button>
+                  <button onClick={() => onStudy(set.id)} style={s.practiceBtn}>
+                    <IconPlay size={14} />Procvičovat
                   </button>
                   <button onClick={() => { if (confirm(`Smazat test "${set.name}"?`)) onDelete(set.id); }} style={s.iconBtn} title="Smazat">
                     <IconTrash size={14} />
@@ -442,6 +456,13 @@ function MySetsTab({ sets, onStudy, onDelete, onReset, onCreate }) {
           );
         })}
       </div>
+      {modalSetId && (
+        <QuickTestModal
+          maxCount={sets.find((s) => s.id === modalSetId)?.cards.length || 0}
+          onStart={(count) => { onQuickTest(modalSetId, count); setModalSetId(null); }}
+          onClose={() => setModalSetId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -481,6 +502,310 @@ function CardGrid({ cards, activeIdx, onJump, compact = false }) {
             }} />
         );
       })}
+    </div>
+  );
+}
+
+function QuickTestModal({ maxCount, onStart, onClose }) {
+  const [count, setCount] = useState(Math.min(10, maxCount));
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onStart(Math.max(1, Math.min(maxCount, count)));
+  };
+
+  useEffect(() => {
+    const h = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  return (
+    <div style={s.modalOverlay} onClick={onClose}>
+      <div style={s.modal} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ color: '#fff', margin: '0 0 8px', fontSize: 18 }}>Procvičovací test</h3>
+        <p style={{ color: '#9ca3af', margin: '0 0 20px', fontSize: 14 }}>
+          Vylosuje se náhodný výběr otázek. Po dokončení kola můžeš zamíchat a zkoušet znovu.
+        </p>
+        <form onSubmit={handleSubmit}>
+          <label style={s.label}>Počet otázek (z {maxCount})</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <input
+              type="number" min={1} max={maxCount} value={count}
+              onChange={(e) => setCount(Math.max(1, Math.min(maxCount, parseInt(e.target.value) || 1)))}
+              style={{ ...s.input, width: 80 }}
+              autoFocus
+            />
+            <span style={{ color: '#9ca3af', fontSize: 14 }}>z celkových {maxCount}</span>
+          </div>
+          <input
+            type="range" min={1} max={maxCount} value={count}
+            onChange={(e) => setCount(parseInt(e.target.value))}
+            style={{ width: '100%', marginBottom: 24, accentColor: '#2563eb' }}
+          />
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button type="submit" style={{ ...s.primaryBtn, width: 'auto', flex: 1 }}>
+              Začít test
+            </button>
+            <button type="button" onClick={onClose} style={{ ...s.iconBtn, padding: '8px 16px', fontSize: 13 }}>
+              Zrušit
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function QuickStudyView({ set, count, onExit }) {
+  const makeRound = useCallback(() => {
+    const shuffled = [...set.cards];
+    shuffleArray(shuffled);
+    return shuffled.slice(0, count).map((c) => ({ ...c, status: 'unanswered' }));
+  }, [set.cards, count]);
+
+  const [cards, setCards] = useState(() => makeRound());
+  const [idx, setIdx] = useState(0);
+  const [selectedOptions, setSelectedOptions] = useState([]);
+  const [evaluated, setEvaluated] = useState(false);
+  const [aiCopied, setAiCopied] = useState(false);
+  const [currentOptions, setCurrentOptions] = useState([]);
+
+  const reshuffleCards = useCallback(() => {
+    setCards(makeRound());
+    setIdx(0);
+    setSelectedOptions([]);
+    setEvaluated(false);
+    setAiCopied(false);
+  }, [makeRound]);
+
+  const card = cards[idx];
+  const stats = countStats(cards);
+  const total = cards.length;
+  const answered = stats.correct + stats.partial + stats.wrong;
+  const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
+  const allAnswered = answered === total;
+
+  const next = useCallback(() => { setIdx((i) => Math.min(i + 1, total - 1)); }, [total]);
+  const prev = useCallback(() => { setIdx((i) => Math.max(i - 1, 0)); }, []);
+
+  useEffect(() => {
+    setSelectedOptions([]);
+    setEvaluated(false);
+    setAiCopied(false);
+    if (card && card.options) {
+      const shuffled = [...card.options];
+      shuffleArray(shuffled);
+      setCurrentOptions(shuffled);
+    }
+  }, [idx, cards]);
+
+  const toggleOption = useCallback((optIdx) => {
+    if (evaluated) return;
+    setSelectedOptions((prev) =>
+      prev.includes(optIdx) ? prev.filter((i) => i !== optIdx) : [...prev, optIdx]
+    );
+  }, [evaluated]);
+
+  const handleEvaluate = useCallback(() => {
+    if (evaluated) { next(); return; }
+
+    let correctTotal = 0, selectedCorrect = 0, selectedWrong = 0;
+    currentOptions.forEach((opt, i) => {
+      if (opt.isCorrect) correctTotal++;
+      if (selectedOptions.includes(i)) {
+        if (opt.isCorrect) selectedCorrect++;
+        else selectedWrong++;
+      }
+    });
+
+    let status = 'wrong';
+    if (selectedWrong === 0 && selectedCorrect === correctTotal && correctTotal > 0) status = 'correct';
+    else if (selectedWrong === 0 && selectedCorrect > 0) status = 'partial';
+
+    setCards((prev) => prev.map((c, i) => i === idx ? { ...c, status } : c));
+    setEvaluated(true);
+  }, [evaluated, currentOptions, selectedOptions, idx, next]);
+
+  const copyAiPrompt = () => {
+    let promptText = `Ahoj, potřebuji vysvětlit následující otázku z testu:\n\n`;
+    promptText += `Otázka: ${card.question}\n\nMožnosti:\n`;
+    currentOptions.forEach((opt, i) => {
+      const isSelected = selectedOptions.includes(i);
+      promptText += `${opt.isCorrect ? '[SPRÁVNÁ]' : '[ŠPATNÁ]'} — ${opt.text} ${isSelected ? '(Tuto možnost jsem ZAŠKRTL)' : '(Tuto možnost jsem NEZAŠKRTL)'}\n`;
+    });
+    let correctTotal = 0, selectedCorrect = 0, selectedWrong = 0;
+    currentOptions.forEach((opt, i) => {
+      if (opt.isCorrect) correctTotal++;
+      if (selectedOptions.includes(i)) {
+        if (opt.isCorrect) selectedCorrect++;
+        else selectedWrong++;
+      }
+    });
+    const st = (selectedWrong === 0 && selectedCorrect === correctTotal && correctTotal > 0) ? 'correct' : ((selectedWrong === 0 && selectedCorrect > 0) ? 'partial' : 'wrong');
+    promptText += `\nMoje odpověď byla vyhodnocena jako: ${st === 'partial' ? 'ČÁSTEČNĚ SPRÁVNÁ' : 'ŠPATNÁ'}.\n\n`;
+    promptText += `Můžeš mi prosím podrobně vysvětlit, proč je správná odpověď správná a proč ty ostatní jsou nesprávné?`;
+    navigator.clipboard.writeText(promptText);
+    setAiCopied(true);
+    setTimeout(() => setAiCopied(false), 2500);
+  };
+
+  useEffect(() => {
+    const h = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); handleEvaluate(); }
+      else if (e.key === 'ArrowRight') next();
+      else if (e.key === 'ArrowLeft') prev();
+      else if (e.key === 'Escape') onExit();
+      else if (e.key >= '1' && e.key <= '9' && !evaluated) {
+        const index = parseInt(e.key, 10) - 1;
+        if (index >= 0 && index < currentOptions.length) toggleOption(index);
+      }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [evaluated, next, prev, handleEvaluate, onExit, toggleOption, currentOptions.length]);
+
+  let isIncorrect = false;
+  if (evaluated) {
+    let correctTotal = 0, selectedCorrect = 0, selectedWrong = 0;
+    currentOptions.forEach((opt, i) => {
+      if (opt.isCorrect) correctTotal++;
+      if (selectedOptions.includes(i)) {
+        if (opt.isCorrect) selectedCorrect++;
+        else selectedWrong++;
+      }
+    });
+    const st = (selectedWrong === 0 && selectedCorrect === correctTotal && correctTotal > 0) ? 'correct' : ((selectedWrong === 0 && selectedCorrect > 0) ? 'partial' : 'wrong');
+    if (st === 'wrong' || st === 'partial') isIncorrect = true;
+  }
+
+  return (
+    <div style={s.app}>
+      <Header tab="mysets" onTabChange={() => onExit()} />
+      <main style={s.main}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <div style={s.studyTopRow}>
+            <button onClick={onExit} style={s.backBtn}>
+              <IconX size={16} />Ukončit
+            </button>
+            <div style={s.studyTitle}>
+              {set.name} <span style={{ color: '#9ca3af', fontWeight: 400, fontSize: 14 }}>— procvičování ({count} otázek)</span>
+            </div>
+            <div style={{ color: '#9ca3af', fontSize: 13 }}>Otázka {idx + 1} / {total}</div>
+          </div>
+
+          <div style={s.progressBar}>
+            <div style={{ ...s.progressFill, width: `${pct}%` }} />
+          </div>
+
+          {allAnswered && (
+            <div style={{ background: '#0c1a2e', border: '1px solid #1e3a5f', borderRadius: 12, padding: 20, marginBottom: 24, textAlign: 'center' }}>
+              <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Kolo dokončeno!</div>
+              <div style={{ color: '#9ca3af', marginBottom: 16, fontSize: 14 }}>
+                Správně: <strong style={{ color: '#22c55e' }}>{stats.correct}</strong> · Částečně: <strong style={{ color: '#f59e0b' }}>{stats.partial}</strong> · Špatně: <strong style={{ color: '#ef4444' }}>{stats.wrong}</strong>
+              </div>
+              <button onClick={reshuffleCards} style={{ ...s.primaryBtn, width: 'auto', padding: '12px 28px' }}>
+                🔀 Nové kolo — {count} náhodných otázek
+              </button>
+            </div>
+          )}
+
+          <div style={s.studyLayout}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={s.questionContainer}>
+                <div style={s.questionText}>{card.question}</div>
+                <div style={s.optionsList}>
+                  {currentOptions.map((opt, i) => {
+                    const isSelected = selectedOptions.includes(i);
+                    let bg = '#1f2937', borderColor = '#374151', icon = null;
+                    let cbBg = isSelected ? '#3b82f6' : 'transparent';
+                    let cbBorder = isSelected ? '#3b82f6' : '#6b7280';
+
+                    if (evaluated) {
+                      if (opt.isCorrect && isSelected) {
+                        bg = '#14532d'; borderColor = '#22c55e';
+                        cbBg = '#22c55e'; cbBorder = '#22c55e';
+                        icon = <span style={{ color: '#22c55e' }}>✓</span>;
+                      } else if (opt.isCorrect && !isSelected) {
+                        bg = '#1f2937'; borderColor = '#22c55e';
+                        icon = <span style={{ color: '#22c55e' }}>✓</span>;
+                      } else if (!opt.isCorrect && isSelected) {
+                        bg = '#7f1d1d'; borderColor = '#ef4444';
+                        cbBg = '#ef4444'; cbBorder = '#ef4444';
+                        icon = <span style={{ color: '#ef4444' }}>✗</span>;
+                      }
+                    } else if (isSelected) {
+                      bg = '#1e3a5f'; borderColor = '#3b82f6';
+                    }
+
+                    return (
+                      <div key={i} onClick={() => toggleOption(i)} style={{ ...s.optionItem, background: bg, borderColor }}>
+                        <div style={{ ...s.checkbox, borderColor: cbBorder, background: cbBg }}>
+                          {isSelected && <IconCheck size={12} color="#fff" />}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <kbd style={{ marginRight: 8, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#9ca3af' }}>{i + 1}</kbd>
+                          {opt.text}
+                        </div>
+                        {evaluated && <div style={{ width: 20, textAlign: 'center', fontWeight: 'bold' }}>{icon}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+                {isIncorrect && (
+                  <div style={{ marginTop: 24, display: 'flex', justifyContent: 'center' }}>
+                    <button onClick={copyAiPrompt} style={s.aiBtn}>
+                      {aiCopied ? '✨ Prompt zkopírován do schránky!' : '🤖 Zeptat se AI (Zkopírovat prompt)'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', marginTop: 24, gap: 12, flexWrap: 'wrap' }}>
+                <button onClick={prev} disabled={idx === 0} style={{ ...s.navIconBtn, opacity: idx === 0 ? 0.3 : 1 }}>
+                  <IconChevronLeft size={18} />Předchozí
+                </button>
+                <button onClick={reshuffleCards} style={s.navIconBtn} title="Přehodit otázky — nové náhodné kolo">
+                  <IconShuffle size={16} />Přehodit otázky
+                </button>
+                <div style={{ flex: 1, minWidth: 120, textAlign: 'center' }}>
+                  {!evaluated ? (
+                    <button onClick={handleEvaluate} style={s.evaluateBtn}>Vyhodnotit (Enter)</button>
+                  ) : (
+                    <button onClick={next} disabled={idx === total - 1} style={s.nextPrimaryBtn}>Další otázka (Enter)</button>
+                  )}
+                </div>
+                <button onClick={next} disabled={idx === total - 1} style={{ ...s.navIconBtn, opacity: idx === total - 1 ? 0.3 : 1 }}>
+                  Další<IconChevronRight size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={s.statsBox}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{pct}%</span>
+                  <span style={{ color: '#9ca3af', fontSize: 13 }}>postup</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#22c55e' }} /><span>Správně</span><strong style={{ color: '#22c55e' }}>{stats.correct}</strong></div>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#f59e0b' }} /><span>Částečně</span><strong style={{ color: '#f59e0b' }}>{stats.partial}</strong></div>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#ef4444' }} /><span>Špatně</span><strong style={{ color: '#ef4444' }}>{stats.wrong}</strong></div>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#6b7280' }} /><span>Neodp.</span><strong style={{ color: '#9ca3af' }}>{stats.unanswered}</strong></div>
+                </div>
+              </div>
+              <div style={s.statsBox}>
+                <div style={{ fontSize: 12, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Mapa otázek</div>
+                <CardGrid cards={cards} activeIdx={idx} onJump={setIdx} />
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 24, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+            Zkratky: <kbd>Enter</kbd> vyhodnotit / další · <kbd>←</kbd> <kbd>→</kbd> navigace · <kbd>Esc</kbd> ukončit
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
@@ -872,6 +1197,10 @@ const s = {
   statsBox: { background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 16 },
   statsRow: { display: 'grid', gridTemplateColumns: '16px 1fr auto', alignItems: 'center', gap: 8, fontSize: 13, color: '#d1d5db' },
   resetBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: '8px 14px', color: '#9ca3af', cursor: 'pointer', fontSize: 13 },
+  practiceBtn: { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#064e3b', color: '#34d399', border: '1px solid #065f46', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 500 },
+  testBtn: { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1e0a33', color: '#c084fc', border: '1px solid #7c3aed', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 500 },
+  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 },
+  modal: { background: '#111827', border: '1px solid #374151', borderRadius: 16, padding: 28, width: '100%', maxWidth: 420 },
 };
 
 // Mobile responsive
