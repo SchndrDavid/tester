@@ -566,6 +566,7 @@ function QuickStudyView({ set, count, onExit }) {
 
   const [cards, setCards] = useState(() => makeRound());
   const [idx, setIdx] = useState(0);
+  const [roundKey, setRoundKey] = useState(0);
   const [selectedOptions, setSelectedOptions] = useState([]);
   const [evaluated, setEvaluated] = useState(false);
   const [aiCopied, setAiCopied] = useState(false);
@@ -580,9 +581,7 @@ function QuickStudyView({ set, count, onExit }) {
   const reshuffleCards = useCallback(() => {
     setCards(makeRound());
     setIdx(0);
-    setSelectedOptions([]);
-    setEvaluated(false);
-    setAiCopied(false);
+    setRoundKey((k) => k + 1);
   }, [makeRound]);
 
   const card = cards[idx];
@@ -606,7 +605,7 @@ function QuickStudyView({ set, count, onExit }) {
       shuffleArray(shuffled);
       setCurrentOptions(shuffled);
     }
-  }, [idx, cards]);
+  }, [idx, roundKey]);
 
   const toggleOption = useCallback((optIdx) => {
     if (evaluated) return;
