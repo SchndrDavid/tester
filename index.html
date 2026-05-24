@@ -570,6 +570,12 @@ function QuickStudyView({ set, count, onExit }) {
   const [evaluated, setEvaluated] = useState(false);
   const [aiCopied, setAiCopied] = useState(false);
   const [currentOptions, setCurrentOptions] = useState([]);
+  const [opKbMode, setOpKbMode] = useState(false);
+  const [opKbIdx, setOpKbIdx] = useState(0);
+  const opKbModeRef = useRef(false);
+  const opKbIdxRef = useRef(0);
+  useEffect(() => { opKbModeRef.current = opKbMode; }, [opKbMode]);
+  useEffect(() => { opKbIdxRef.current = opKbIdx; }, [opKbIdx]);
 
   const reshuffleCards = useCallback(() => {
     setCards(makeRound());
@@ -593,6 +599,8 @@ function QuickStudyView({ set, count, onExit }) {
     setSelectedOptions([]);
     setEvaluated(false);
     setAiCopied(false);
+    setOpKbMode(false);
+    setOpKbIdx(0);
     if (card && card.options) {
       const shuffled = [...card.options];
       shuffleArray(shuffled);
@@ -651,12 +659,28 @@ function QuickStudyView({ set, count, onExit }) {
   };
 
   useEffect(() => {
+    const onMouse = () => { setOpKbMode(false); };
+    window.addEventListener('mousedown', onMouse);
+    return () => window.removeEventListener('mousedown', onMouse);
+  }, []);
+
+  useEffect(() => {
     const h = (e) => {
       if (e.key === 'Enter') { e.preventDefault(); handleEvaluate(); }
-      else if (e.key === 'ArrowRight') next();
-      else if (e.key === 'ArrowLeft') prev();
+      else if (e.key === 'ArrowRight') { setOpKbMode(false); next(); }
+      else if (e.key === 'ArrowLeft') { setOpKbMode(false); prev(); }
       else if (e.key === 'Escape') onExit();
-      else if (e.key >= '1' && e.key <= '9' && !evaluated) {
+      else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !evaluated) {
+        e.preventDefault();
+        if (!opKbModeRef.current) {
+          setOpKbMode(true);
+          setOpKbIdx(0);
+        } else {
+          setOpKbIdx((p) => e.key === 'ArrowUp' ? Math.max(0, p - 1) : Math.min(currentOptions.length - 1, p + 1));
+        }
+      } else if (e.key === 'Shift' && opKbModeRef.current && !evaluated) {
+        toggleOption(opKbIdxRef.current);
+      } else if (e.key >= '1' && e.key <= '9' && !evaluated) {
         const index = parseInt(e.key, 10) - 1;
         if (index >= 0 && index < currentOptions.length) toggleOption(index);
       }
@@ -717,9 +741,11 @@ function QuickStudyView({ set, count, onExit }) {
                 <div style={s.optionsList}>
                   {currentOptions.map((opt, i) => {
                     const isSelected = selectedOptions.includes(i);
+                    const isOpKbCursor = opKbMode && opKbIdx === i && !evaluated;
                     let bg = '#1f2937', borderColor = '#374151', icon = null;
                     let cbBg = isSelected ? '#3b82f6' : 'transparent';
                     let cbBorder = isSelected ? '#3b82f6' : '#6b7280';
+                    let boxShadow = 'none';
 
                     if (evaluated) {
                       if (opt.isCorrect && isSelected) {
@@ -737,9 +763,13 @@ function QuickStudyView({ set, count, onExit }) {
                     } else if (isSelected) {
                       bg = '#1e3a5f'; borderColor = '#3b82f6';
                     }
+                    if (isOpKbCursor) {
+                      if (!isSelected) { bg = '#170826'; borderColor = '#7c3aed'; cbBorder = '#7c3aed'; }
+                      boxShadow = '0 0 0 3px #7c3aed33';
+                    }
 
                     return (
-                      <div key={i} onClick={() => toggleOption(i)} style={{ ...s.optionItem, background: bg, borderColor }}>
+                      <div key={i} onClick={() => toggleOption(i)} style={{ ...s.optionItem, background: bg, borderColor, boxShadow }}>
                         <div style={{ ...s.checkbox, borderColor: cbBorder, background: cbBg }}>
                           {isSelected && <IconCheck size={12} color="#fff" />}
                         </div>
@@ -802,7 +832,7 @@ function QuickStudyView({ set, count, onExit }) {
           </div>
 
           <div style={{ marginTop: 24, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
-            Zkratky: <kbd>Enter</kbd> vyhodnotit / další · <kbd>←</kbd> <kbd>→</kbd> navigace · <kbd>Esc</kbd> ukončit
+            Zkratky: <kbd>Enter</kbd> vyhodnotit / další · <kbd>←</kbd> <kbd>→</kbd> navigace · <kbd>↑</kbd> <kbd>↓</kbd> vybrat odpověď · <kbd>Shift</kbd> označit · <kbd>Esc</kbd> ukončit
           </div>
         </div>
       </main>
@@ -816,6 +846,12 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
   const [evaluated, setEvaluated] = useState(false);
   const [aiCopied, setAiCopied] = useState(false);
   const [currentOptions, setCurrentOptions] = useState([]);
+  const [opKbMode, setOpKbMode] = useState(false);
+  const [opKbIdx, setOpKbIdx] = useState(0);
+  const opKbModeRef = useRef(false);
+  const opKbIdxRef = useRef(0);
+  useEffect(() => { opKbModeRef.current = opKbMode; }, [opKbMode]);
+  useEffect(() => { opKbIdxRef.current = opKbIdx; }, [opKbIdx]);
 
   const card = set.cards[idx];
   const stats = countStats(set.cards);
@@ -835,11 +871,13 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
     setIdx(rand);
   };
 
-  useEffect(() => { 
-    setSelectedOptions([]); 
-    setEvaluated(false); 
+  useEffect(() => {
+    setSelectedOptions([]);
+    setEvaluated(false);
     setAiCopied(false);
-    
+    setOpKbMode(false);
+    setOpKbIdx(0);
+
     if (card && card.options) {
       const shuffled = [...card.options];
       shuffleArray(shuffled);
@@ -916,12 +954,28 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
   };
 
   useEffect(() => {
+    const onMouse = () => { setOpKbMode(false); };
+    window.addEventListener('mousedown', onMouse);
+    return () => window.removeEventListener('mousedown', onMouse);
+  }, []);
+
+  useEffect(() => {
     const h = (e) => {
       if (e.key === 'Enter') { e.preventDefault(); handleEvaluate(); }
-      else if (e.key === 'ArrowRight') next();
-      else if (e.key === 'ArrowLeft') prev();
+      else if (e.key === 'ArrowRight') { setOpKbMode(false); next(); }
+      else if (e.key === 'ArrowLeft') { setOpKbMode(false); prev(); }
       else if (e.key === 'Escape') onExit();
-      else if (e.key >= '1' && e.key <= '9' && !evaluated) {
+      else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !evaluated) {
+        e.preventDefault();
+        if (!opKbModeRef.current) {
+          setOpKbMode(true);
+          setOpKbIdx(0);
+        } else {
+          setOpKbIdx((p) => e.key === 'ArrowUp' ? Math.max(0, p - 1) : Math.min(currentOptions.length - 1, p + 1));
+        }
+      } else if (e.key === 'Shift' && opKbModeRef.current && !evaluated) {
+        toggleOption(opKbIdxRef.current);
+      } else if (e.key >= '1' && e.key <= '9' && !evaluated) {
         const index = parseInt(e.key, 10) - 1;
         if (index >= 0 && index < currentOptions.length) {
           toggleOption(index);
@@ -976,10 +1030,12 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
                 <div style={s.optionsList}>
                   {currentOptions.map((opt, i) => {
                     const isSelected = selectedOptions.includes(i);
+                    const isOpKbCursor = opKbMode && opKbIdx === i && !evaluated;
                     let bg = '#1f2937';
                     let borderColor = '#374151';
                     let icon = null;
-                    
+                    let boxShadow = 'none';
+
                     let cbBg = isSelected ? '#3b82f6' : 'transparent';
                     let cbBorder = isSelected ? '#3b82f6' : '#6b7280';
 
@@ -999,9 +1055,13 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
                     } else if (isSelected) {
                       bg = '#1e3a5f'; borderColor = '#3b82f6';
                     }
+                    if (isOpKbCursor) {
+                      if (!isSelected) { bg = '#170826'; borderColor = '#7c3aed'; cbBorder = '#7c3aed'; }
+                      boxShadow = '0 0 0 3px #7c3aed33';
+                    }
 
                     return (
-                      <div key={i} onClick={() => toggleOption(i)} style={{ ...s.optionItem, background: bg, borderColor }}>
+                      <div key={i} onClick={() => toggleOption(i)} style={{ ...s.optionItem, background: bg, borderColor, boxShadow }}>
                          <div style={{...s.checkbox, borderColor: cbBorder, background: cbBg}}>
                             {isSelected && <IconCheck size={12} color="#fff"/>}
                          </div>
@@ -1074,7 +1134,7 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
           </div>
 
           <div style={{ marginTop: 24, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
-            Zkratky: <kbd>Enter</kbd> vyhodnotit / další · <kbd>←</kbd> <kbd>→</kbd> navigace mezi otázkami · <kbd>Esc</kbd> ukončit
+            Zkratky: <kbd>Enter</kbd> vyhodnotit / další · <kbd>←</kbd> <kbd>→</kbd> navigace · <kbd>↑</kbd> <kbd>↓</kbd> vybrat odpověď · <kbd>Shift</kbd> označit · <kbd>Esc</kbd> ukončit
           </div>
         </div>
       </main>
