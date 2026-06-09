@@ -165,18 +165,16 @@ function countStats(cards) {
 
 function FlashcardsApp() {
   const [tab, setTab] = useState('home');
-  const [sets, setSets] = useState([]);
+  const [sets, setSets] = useState(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
   const [studyId, setStudyId] = useState(null);
   const [quickTestConfig, setQuickTestConfig] = useState(null);
   const [customTest, setCustomTest] = useState(null);
   const [customTestKey, setCustomTestKey] = useState(0);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setSets(JSON.parse(raw));
-    } catch (e) { console.error(e); }
-  }, []);
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(sets)); }
@@ -1030,7 +1028,21 @@ function TestingTab({ sets, onStartTest }) {
 
       {generatedInfo && (
         <div style={{ marginTop: 20, background: '#0c1a2e', border: '1px solid #1e3a5f', borderRadius: 12, padding: 20 }}>
-          <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Test připraven</div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div>
+              <div style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Test připraven</div>
+              <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: 16 }}>
+                {generatedInfo.sets.map(s => s.name).join(' · ')}
+              </div>
+            </div>
+            <button
+              onClick={() => { setSavedSelections(null); setGeneratedInfo(null); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 18, lineHeight: 1, padding: '2px 6px', borderRadius: 6, transition: 'color .15s' }}
+              onMouseEnter={e => e.target.style.color='#ef4444'}
+              onMouseLeave={e => e.target.style.color='#6b7280'}
+              title="Smazat"
+            >✕</button>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginBottom: 14 }}>
             {generatedInfo.sets.map((s, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #1f2937', fontSize: 13 }}>
