@@ -273,6 +273,7 @@ function HomeTab({ onCreate, onGoToSets, hasSets }) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState(null);
   const [errors, setErrors] = useState([]);
+  const [createdName, setCreatedName] = useState('');
   const fileRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -315,12 +316,10 @@ function HomeTab({ onCreate, onGoToSets, hasSets }) {
     if (!parsed || parsed.length === 0) return;
     const setName = name.trim() || `Test ${new Date().toLocaleDateString('cs-CZ')}`;
     onCreate(setName, parsed);
-    
-    alert(`Test "${setName}" byl úspěšně vytvořen!`);
-    
+    setCreatedName(setName);
     setName(''); setText(''); setParsed(null); setErrors([]);
     if (fileRef.current) fileRef.current.value = '';
-    onGoToSets();
+    setTimeout(() => setCreatedName(''), 4000);
   };
 
   return (
@@ -401,6 +400,13 @@ Text druhé otázky
           style={{ ...s.primaryBtn, opacity: (!parsed || parsed.length === 0) ? 0.4 : 1, cursor: (!parsed || parsed.length === 0) ? 'not-allowed' : 'pointer', marginTop: 24 }}>
           Vytvořit test
         </button>
+
+        {createdName && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, padding: '12px 16px', background: '#052e16', border: '1px solid #166534', borderRadius: 8, color: '#22c55e', fontSize: 14 }}>
+            <IconCheck size={16} />
+            <span>Test <strong>"{createdName}"</strong> byl vytvořen — formulář je připraven na další import.</span>
+          </div>
+        )}
       </div>
 
       {hasSets && (
