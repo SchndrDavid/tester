@@ -314,9 +314,9 @@ function HomeTab({ onCreate, onGoToSets, hasSets }) {
 
   const handleCreate = () => {
     if (!parsed || parsed.length === 0) return;
-    const setName = name.trim() || `Test ${new Date().toLocaleDateString('cs-CZ')}`;
-    onCreate(setName, parsed);
-    setCreatedName(setName);
+    const finalName = name.trim() || `Test ${new Date().toLocaleDateString('cs-CZ')}`;
+    onCreate(finalName, parsed);
+    setCreatedName(finalName);
     setName(''); setText(''); setParsed(null); setErrors([]);
     if (fileRef.current) fileRef.current.value = '';
     setTimeout(() => setCreatedName(''), 4000);
@@ -867,12 +867,13 @@ function TestingTab({ sets }) {
   const [activeTest, setActiveTest] = useState(null);
   const [testKey, setTestKey] = useState(0);
   const [savedSelections, setSavedSelections] = useState(null);
+  const [generatedInfo, setGeneratedInfo] = useState(null);
 
   useEffect(() => {
     setSelections(prev => {
       const next = {};
       sets.forEach(set => {
-        next[set.id] = prev[set.id] || { enabled: false, count: Math.min(10, set.cards.length) };
+        next[set.id] = prev[set.id] || { enabled: false, count: 0 };
       });
       return next;
     });
@@ -882,8 +883,9 @@ function TestingTab({ sets }) {
     setSelections(prev => ({ ...prev, [id]: { ...prev[id], enabled: !prev[id].enabled } }));
   };
 
-  const updateCount = (id, val, max) => {
-    setSelections(prev => ({ ...prev, [id]: { ...prev[id], count: Math.max(1, Math.min(max, val)) } }));
+  const updateCount = (id, raw, max) => {
+    const num = raw === '' ? 0 : Math.min(max, Math.max(0, parseInt(raw) || 0));
+    setSelections(prev => ({ ...prev, [id]: { ...prev[id], count: num } }));
   };
 
   const totalCount = sets.reduce((sum, set) => {
@@ -905,9 +907,18 @@ function TestingTab({ sets }) {
   };
 
   const handleGenerate = () => {
-    const cards = buildCards(selections);
-    if (!cards.length) return;
-    setSavedSelections({ ...selections });
+    if (totalCount === 0) return;
+    const sels = { ...selections };
+    setSavedSelections(sels);
+    setGeneratedInfo({
+      total: totalCount,
+      sets: sets.filter(s => sels[s.id]?.enabled && sels[s.id]?.count > 0)
+               .map(s => ({ name: s.name, count: sels[s.id].count })),
+    });
+  };
+
+  const handleStart = () => {
+    const cards = buildCards(savedSelections);
     setActiveTest(cards);
     setTestKey(k => k + 1);
   };
@@ -944,17 +955,15 @@ function TestingTab({ sets }) {
         <label style={s.label}>Výběr sad</label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {sets.map(set => {
-            const sel = selections[set.id] || { enabled: false, count: 1 };
+            const sel = selections[set.id] || { enabled: false, count: 0 };
             return (
-              <div key={set.id}
-                onClick={() => toggleSet(set.id)}
+              <div key={set.id} onClick={() => toggleSet(set.id)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 14,
                   padding: '12px 14px',
                   background: sel.enabled ? '#0c1a2e' : '#0a0a0a',
                   border: `1px solid ${sel.enabled ? '#2563eb' : '#1f2937'}`,
-                  borderRadius: 10, cursor: 'pointer',
-                  transition: 'all 0.15s',
+                  borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
                 }}>
                 <div style={{
                   width: 38, height: 22, borderRadius: 11, flexShrink: 0,
@@ -976,9 +985,11 @@ function TestingTab({ sets }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: sel.enabled ? 1 : 0.3 }}
                   onClick={e => e.stopPropagation()}>
                   <input
-                    type="number" min={1} max={set.cards.length} value={sel.count}
+                    type="text" inputMode="numeric" pattern="[0-9]*"
+                    value={sel.count > 0 ? sel.count : ''}
+                    placeholder="0"
                     disabled={!sel.enabled}
-                    onChange={e => updateCount(set.id, parseInt(e.target.value) || 1, set.cards.length)}
+                    onChange={e => updateCount(set.id, e.target.value.replace(/\D/g, ''), set.cards.length)}
                     style={{ ...s.input, width: 60, padding: '5px 8px', textAlign: 'center', fontSize: 14 }}
                   />
                   <span style={{ color: '#6b7280', fontSize: 12, flexShrink: 0 }}>z {set.cards.length}</span>
@@ -999,6 +1010,26 @@ function TestingTab({ sets }) {
         style={{ ...s.primaryBtn, opacity: totalCount === 0 ? 0.4 : 1, cursor: totalCount === 0 ? 'not-allowed' : 'pointer' }}>
         Vygenerovat test ({totalCount} otázek)
       </button>
+
+      {generatedInfo && (
+        <div style={{ marginTop: 20, background: '#0c1a2e', border: '1px solid #1e3a5f', borderRadius: 12, padding: 20 }}>
+          <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Test připraven</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginBottom: 14 }}>
+            {generatedInfo.sets.map((s, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #1f2937', fontSize: 13 }}>
+                <span style={{ color: '#d1d5db' }}>{s.name}</span>
+                <span style={{ color: '#60a5fa', fontWeight: 600 }}>{s.count} otázek</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ color: '#9ca3af', fontSize: 13, marginBottom: 16 }}>
+            Celkem: <strong style={{ color: '#fff' }}>{generatedInfo.total}</strong> otázek
+          </div>
+          <button onClick={handleStart} style={{ ...s.primaryBtn, display: 'inline-flex', alignItems: 'center', gap: 8, width: 'auto', padding: '12px 28px' }}>
+            <IconPlay size={15} />Spustit test
+          </button>
+        </div>
+      )}
     </div>
   );
 }
