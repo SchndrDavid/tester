@@ -51,6 +51,19 @@
     min-height: 100vh;
     color: #9ca3af;
   }
+  @media (max-width: 960px) {
+    nav {
+      overflow-x: auto;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    nav::-webkit-scrollbar { display: none; }
+    nav button { flex-shrink: 0; white-space: nowrap; }
+  }
+  @media (max-width: 560px) {
+    .stat-bar { display: grid !important; grid-template-columns: 1fr 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -60,6 +73,8 @@
 const { useState, useEffect, useRef, useCallback } = React;
 
 const STORAGE_KEY = 'tester_sets_v2';
+const TESTING_KEY = 'tester_testing_v1';
+const getStoredTesting = () => { try { return JSON.parse(localStorage.getItem(TESTING_KEY) || '{}'); } catch { return {}; } };
 
 // --- Jednoduché ikony jako SVG inline ---
 const Icon = ({ children, size = 16 }) => (
@@ -486,7 +501,7 @@ function MySetsTab({ sets, onStudy, onDelete, onReset, onCreate, onQuickTest }) 
                 </div>
               </div>
 
-              <div style={s.statBar}>
+              <div className="stat-bar" style={s.statBar}>
                 <StatPill label="Správně" count={stats.correct} color="#22c55e" />
                 <StatPill label="Částečně" count={stats.partial} color="#f59e0b" />
                 <StatPill label="Špatně" count={stats.wrong} color="#ef4444" />
@@ -888,9 +903,9 @@ function QuickStudyView({ set, count, onExit }) {
 }
 
 function TestingTab({ sets, onStartTest }) {
-  const [selections, setSelections] = useState({});
-  const [savedSelections, setSavedSelections] = useState(null);
-  const [generatedInfo, setGeneratedInfo] = useState(null);
+  const [selections, setSelections] = useState(() => getStoredTesting().selections || {});
+  const [savedSelections, setSavedSelections] = useState(() => getStoredTesting().savedSelections || null);
+  const [generatedInfo, setGeneratedInfo] = useState(() => getStoredTesting().generatedInfo || null);
 
   useEffect(() => {
     setSelections(prev => {
@@ -901,6 +916,11 @@ function TestingTab({ sets, onStartTest }) {
       return next;
     });
   }, [sets]);
+
+  useEffect(() => {
+    try { localStorage.setItem(TESTING_KEY, JSON.stringify({ selections, savedSelections, generatedInfo })); }
+    catch {}
+  }, [selections, savedSelections, generatedInfo]);
 
   const toggleSet = (id) => {
     setSelections(prev => ({ ...prev, [id]: { ...prev[id], enabled: !prev[id].enabled } }));
@@ -1823,11 +1843,26 @@ const s = {
   modal: { background: '#111827', border: '1px solid #374151', borderRadius: 16, padding: 28, width: '100%', maxWidth: 420 },
 };
 
-// Mobile responsive
+// Mobile: < 768px
 if (window.innerWidth < 768) {
   s.studyLayout = { display: 'flex', flexDirection: 'column', gap: 16 };
   s.main = { ...s.main, padding: '16px' };
-  s.questionContainer = { ...s.questionContainer, padding: '20px' };
+  s.headerInner = { ...s.headerInner, padding: '10px 16px', gap: 12 };
+  s.h1 = { ...s.h1, fontSize: 22 };
+  s.card = { ...s.card, padding: 16 };
+  s.setCard = { ...s.setCard, padding: 14 };
+  s.questionContainer = { ...s.questionContainer, padding: '20px 16px', minHeight: 180 };
+  s.questionText = { ...s.questionText, fontSize: 18 };
+  s.studyTitle = { ...s.studyTitle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55vw' };
+  s.studyTopRow = { ...s.studyTopRow, gap: 8 };
+  s.navIconBtn = { ...s.navIconBtn, padding: '8px 10px', fontSize: 13 };
+  s.modal = { ...s.modal, padding: 20 };
+  s.nav = { ...s.nav, flex: 1 };
+}
+
+// Tablet: 768px – 1024px
+if (window.innerWidth >= 768 && window.innerWidth <= 1024) {
+  s.studyLayout = { ...s.studyLayout, gridTemplateColumns: '1fr 280px' };
 }
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
