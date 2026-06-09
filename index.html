@@ -153,6 +153,8 @@ function FlashcardsApp() {
   const [sets, setSets] = useState([]);
   const [studyId, setStudyId] = useState(null);
   const [quickTestConfig, setQuickTestConfig] = useState(null);
+  const [customTest, setCustomTest] = useState(null);
+  const [customTestKey, setCustomTestKey] = useState(0);
 
   useEffect(() => {
     try {
@@ -216,6 +218,29 @@ function FlashcardsApp() {
     }
   }
 
+  if (customTest) {
+    const cards = (() => {
+      const result = [];
+      sets.forEach(set => {
+        const sel = customTest.savedSelections[set.id];
+        if (!sel?.enabled || !sel.count) return;
+        const shuffled = [...set.cards];
+        shuffleArray(shuffled);
+        shuffled.slice(0, sel.count).forEach(c => result.push({ ...c, status: 'unanswered' }));
+      });
+      shuffleArray(result);
+      return result;
+    })();
+    return (
+      <TestingView
+        key={customTestKey}
+        cards={cards}
+        onExit={() => setCustomTest(null)}
+        onRegenerate={() => setCustomTestKey(k => k + 1)}
+      />
+    );
+  }
+
   const studyingSet = studyId ? sets.find((s) => s.id === studyId) : null;
 
   if (studyingSet) {
@@ -234,7 +259,7 @@ function FlashcardsApp() {
       <Header tab={tab} onTabChange={setTab} />
       <main style={s.main}>
         {tab === 'home' && <HomeTab onCreate={addSet} onGoToSets={() => setTab('mysets')} hasSets={sets.length > 0} />}
-        {tab === 'testing' && <TestingTab sets={sets} />}
+        {tab === 'testing' && <TestingTab sets={sets} onStartTest={(sels) => { setCustomTest({ savedSelections: sels }); setCustomTestKey(k => k + 1); }} />}
         {tab === 'mysets' && <MySetsTab sets={sets} onStudy={setStudyId} onDelete={deleteSet} onReset={resetSet} onCreate={() => setTab('home')} onQuickTest={(setId, count) => setQuickTestConfig({ setId, count })} />}
         {tab === 'importexport' && <ImportExportTab sets={sets} onImport={importSets} />}
         {tab === 'guide' && <GuideTab />}
@@ -862,10 +887,8 @@ function QuickStudyView({ set, count, onExit }) {
   );
 }
 
-function TestingTab({ sets }) {
+function TestingTab({ sets, onStartTest }) {
   const [selections, setSelections] = useState({});
-  const [activeTest, setActiveTest] = useState(null);
-  const [testKey, setTestKey] = useState(0);
   const [savedSelections, setSavedSelections] = useState(null);
   const [generatedInfo, setGeneratedInfo] = useState(null);
 
@@ -893,19 +916,6 @@ function TestingTab({ sets }) {
     return sum + (sel?.enabled ? (sel.count || 0) : 0);
   }, 0);
 
-  const buildCards = (sels) => {
-    const cards = [];
-    sets.forEach(set => {
-      const sel = sels[set.id];
-      if (!sel?.enabled || !sel.count) return;
-      const shuffled = [...set.cards];
-      shuffleArray(shuffled);
-      shuffled.slice(0, sel.count).forEach(c => cards.push({ ...c, status: 'unanswered' }));
-    });
-    shuffleArray(cards);
-    return cards;
-  };
-
   const handleGenerate = () => {
     if (totalCount === 0) return;
     const sels = { ...selections };
@@ -918,21 +928,8 @@ function TestingTab({ sets }) {
   };
 
   const handleStart = () => {
-    const cards = buildCards(savedSelections);
-    setActiveTest(cards);
-    setTestKey(k => k + 1);
+    onStartTest(savedSelections);
   };
-
-  const handleRegenerate = () => {
-    if (!savedSelections) return;
-    const cards = buildCards(savedSelections);
-    setActiveTest(cards);
-    setTestKey(k => k + 1);
-  };
-
-  if (activeTest) {
-    return <TestingView key={testKey} cards={activeTest} onExit={() => setActiveTest(null)} onRegenerate={handleRegenerate} />;
-  }
 
   if (sets.length === 0) {
     return (
