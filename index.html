@@ -78,6 +78,7 @@ const IconCheck = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12"/></Icon>
 const IconAlert = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></Icon>;
 const IconX = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
 const IconShuffle = (p) => <Icon {...p}><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></Icon>;
+const IconDownload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Icon>;
 
 const shuffleArray = (array) => {
   for (let i = array.length - 1; i > 0; i--) {
@@ -196,6 +197,18 @@ function FlashcardsApp() {
     }));
   };
 
+  const importSets = (newSets, mode) => {
+    const reId = (set) => {
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      return { ...set, id, cards: set.cards.map((c, i) => ({ ...c, id: `${id}_${i}` })) };
+    };
+    if (mode === 'replace') {
+      setSets(newSets.map(reId));
+    } else {
+      setSets((prev) => [...prev, ...newSets.map(reId)]);
+    }
+  };
+
   if (quickTestConfig) {
     const qtSet = sets.find((s) => s.id === quickTestConfig.setId);
     if (qtSet) {
@@ -221,7 +234,9 @@ function FlashcardsApp() {
       <Header tab={tab} onTabChange={setTab} />
       <main style={s.main}>
         {tab === 'home' && <HomeTab onCreate={addSet} onGoToSets={() => setTab('mysets')} hasSets={sets.length > 0} />}
+        {tab === 'testing' && <TestingTab sets={sets} />}
         {tab === 'mysets' && <MySetsTab sets={sets} onStudy={setStudyId} onDelete={deleteSet} onReset={resetSet} onCreate={() => setTab('home')} onQuickTest={(setId, count) => setQuickTestConfig({ setId, count })} />}
+        {tab === 'importexport' && <ImportExportTab sets={sets} onImport={importSets} />}
         {tab === 'guide' && <GuideTab />}
       </main>
     </div>
@@ -231,7 +246,9 @@ function FlashcardsApp() {
 function Header({ tab, onTabChange }) {
   const tabs = [
     { id: 'home', label: 'Domů' },
+    { id: 'testing', label: 'Testování' },
     { id: 'mysets', label: 'Moje testy' },
+    { id: 'importexport', label: 'Import / Export' },
     { id: 'guide', label: 'Návod' },
   ];
   return (
@@ -839,6 +856,378 @@ function QuickStudyView({ set, count, onExit }) {
   );
 }
 
+function TestingTab({ sets }) {
+  const [selections, setSelections] = useState({});
+  const [activeTest, setActiveTest] = useState(null);
+  const [testKey, setTestKey] = useState(0);
+  const [savedSelections, setSavedSelections] = useState(null);
+
+  useEffect(() => {
+    setSelections(prev => {
+      const next = {};
+      sets.forEach(set => {
+        next[set.id] = prev[set.id] || { enabled: false, count: Math.min(10, set.cards.length) };
+      });
+      return next;
+    });
+  }, [sets]);
+
+  const toggleSet = (id) => {
+    setSelections(prev => ({ ...prev, [id]: { ...prev[id], enabled: !prev[id].enabled } }));
+  };
+
+  const updateCount = (id, val, max) => {
+    setSelections(prev => ({ ...prev, [id]: { ...prev[id], count: Math.max(1, Math.min(max, val)) } }));
+  };
+
+  const totalCount = sets.reduce((sum, set) => {
+    const sel = selections[set.id];
+    return sum + (sel?.enabled ? (sel.count || 0) : 0);
+  }, 0);
+
+  const buildCards = (sels) => {
+    const cards = [];
+    sets.forEach(set => {
+      const sel = sels[set.id];
+      if (!sel?.enabled || !sel.count) return;
+      const shuffled = [...set.cards];
+      shuffleArray(shuffled);
+      shuffled.slice(0, sel.count).forEach(c => cards.push({ ...c, status: 'unanswered' }));
+    });
+    shuffleArray(cards);
+    return cards;
+  };
+
+  const handleGenerate = () => {
+    const cards = buildCards(selections);
+    if (!cards.length) return;
+    setSavedSelections({ ...selections });
+    setActiveTest(cards);
+    setTestKey(k => k + 1);
+  };
+
+  const handleRegenerate = () => {
+    if (!savedSelections) return;
+    const cards = buildCards(savedSelections);
+    setActiveTest(cards);
+    setTestKey(k => k + 1);
+  };
+
+  if (activeTest) {
+    return <TestingView key={testKey} cards={activeTest} onExit={() => setActiveTest(null)} onRegenerate={handleRegenerate} />;
+  }
+
+  if (sets.length === 0) {
+    return (
+      <div style={s.container}>
+        <div style={s.emptyState}>
+          <IconFile size={48} />
+          <h2 style={{ ...s.h2, marginTop: 16 }}>Žádné sady k dispozici</h2>
+          <p style={s.subtitle}>Nejdříve vytvořte alespoň jeden test na záložce Domů.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={s.container}>
+      <h1 style={s.h1}>Testování</h1>
+      <p style={s.subtitle}>Vyber sady a nastav počet otázek z každé</p>
+
+      <div style={s.card}>
+        <label style={s.label}>Výběr sad</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {sets.map(set => {
+            const sel = selections[set.id] || { enabled: false, count: 1 };
+            return (
+              <div key={set.id}
+                onClick={() => toggleSet(set.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  padding: '12px 14px',
+                  background: sel.enabled ? '#0c1a2e' : '#0a0a0a',
+                  border: `1px solid ${sel.enabled ? '#2563eb' : '#1f2937'}`,
+                  borderRadius: 10, cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}>
+                <div style={{
+                  width: 38, height: 22, borderRadius: 11, flexShrink: 0,
+                  background: sel.enabled ? '#2563eb' : '#374151',
+                  position: 'relative', transition: 'background 0.2s',
+                }}>
+                  <div style={{
+                    width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                    position: 'absolute', top: 3, left: sel.enabled ? 19 : 3,
+                    transition: 'left 0.2s',
+                  }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: sel.enabled ? '#fff' : '#9ca3af', fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {set.name}
+                  </div>
+                  <div style={{ color: '#6b7280', fontSize: 12 }}>{set.cards.length} otázek celkem</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: sel.enabled ? 1 : 0.3 }}
+                  onClick={e => e.stopPropagation()}>
+                  <input
+                    type="number" min={1} max={set.cards.length} value={sel.count}
+                    disabled={!sel.enabled}
+                    onChange={e => updateCount(set.id, parseInt(e.target.value) || 1, set.cards.length)}
+                    style={{ ...s.input, width: 60, padding: '5px 8px', textAlign: 'center', fontSize: 14 }}
+                  />
+                  <span style={{ color: '#6b7280', fontSize: 12, flexShrink: 0 }}>z {set.cards.length}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+        <span style={{ color: '#9ca3af', fontSize: 14 }}>
+          Celkem: <strong style={{ color: totalCount > 0 ? '#60a5fa' : '#6b7280', fontSize: 16 }}>{totalCount}</strong> otázek
+        </span>
+      </div>
+
+      <button onClick={handleGenerate} disabled={totalCount === 0}
+        style={{ ...s.primaryBtn, opacity: totalCount === 0 ? 0.4 : 1, cursor: totalCount === 0 ? 'not-allowed' : 'pointer' }}>
+        Vygenerovat test ({totalCount} otázek)
+      </button>
+    </div>
+  );
+}
+
+function TestingView({ cards: initialCards, onExit, onRegenerate }) {
+  const [idx, setIdx] = useState(0);
+  const [selectedOptions, setSelectedOptions] = useState([]);
+  const [evaluated, setEvaluated] = useState(false);
+  const [aiCopied, setAiCopied] = useState(false);
+  const [currentOptions, setCurrentOptions] = useState([]);
+  const [cardResults, setCardResults] = useState(() => initialCards.map(c => ({ ...c })));
+  const [opKbMode, setOpKbMode] = useState(false);
+  const [opKbIdx, setOpKbIdx] = useState(0);
+  const opKbModeRef = useRef(false);
+  const opKbIdxRef = useRef(0);
+  useEffect(() => { opKbModeRef.current = opKbMode; }, [opKbMode]);
+  useEffect(() => { opKbIdxRef.current = opKbIdx; }, [opKbIdx]);
+
+  const card = cardResults[idx];
+  const total = cardResults.length;
+  const stats = countStats(cardResults);
+  const answered = stats.correct + stats.partial + stats.wrong;
+  const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
+  const allAnswered = answered === total;
+
+  const next = useCallback(() => setIdx(i => Math.min(i + 1, total - 1)), [total]);
+  const prev = useCallback(() => setIdx(i => Math.max(i - 1, 0)), []);
+
+  useEffect(() => {
+    setSelectedOptions([]);
+    setEvaluated(false);
+    setAiCopied(false);
+    setOpKbMode(false);
+    setOpKbIdx(0);
+    if (card && card.options) {
+      const shuffled = [...card.options];
+      shuffleArray(shuffled);
+      setCurrentOptions(shuffled);
+    }
+  }, [idx]);
+
+  const toggleOption = useCallback((optIdx) => {
+    if (evaluated) return;
+    setSelectedOptions(prev => prev.includes(optIdx) ? prev.filter(i => i !== optIdx) : [...prev, optIdx]);
+  }, [evaluated]);
+
+  const handleEvaluate = useCallback(() => {
+    if (evaluated) { next(); return; }
+    let correctTotal = 0, selectedCorrect = 0, selectedWrong = 0;
+    currentOptions.forEach((opt, i) => {
+      if (opt.isCorrect) correctTotal++;
+      if (selectedOptions.includes(i)) {
+        if (opt.isCorrect) selectedCorrect++;
+        else selectedWrong++;
+      }
+    });
+    let status = 'wrong';
+    if (selectedWrong === 0 && selectedCorrect === correctTotal && correctTotal > 0) status = 'correct';
+    else if (selectedWrong === 0 && selectedCorrect > 0) status = 'partial';
+    setCardResults(prev => prev.map((c, i) => i === idx ? { ...c, status } : c));
+    setEvaluated(true);
+  }, [evaluated, currentOptions, selectedOptions, idx, next]);
+
+  const copyAiPrompt = () => {
+    let promptText = `Ahoj, potřebuji vysvětlit následující otázku z testu:\n\nOtázka: ${card.question}\n\nMožnosti:\n`;
+    currentOptions.forEach((opt, i) => {
+      const isSel = selectedOptions.includes(i);
+      promptText += `${opt.isCorrect ? '[SPRÁVNÁ]' : '[ŠPATNÁ]'} — ${opt.text} ${isSel ? '(Tuto možnost jsem ZAŠKRTL)' : '(Tuto možnost jsem NEZAŠKRTL)'}\n`;
+    });
+    let cT = 0, sC = 0, sW = 0;
+    currentOptions.forEach((opt, i) => {
+      if (opt.isCorrect) cT++;
+      if (selectedOptions.includes(i)) { if (opt.isCorrect) sC++; else sW++; }
+    });
+    const st = (sW === 0 && sC === cT && cT > 0) ? 'correct' : (sW === 0 && sC > 0 ? 'partial' : 'wrong');
+    promptText += `\nMoje odpověď byla vyhodnocena jako: ${st === 'partial' ? 'ČÁSTEČNĚ SPRÁVNÁ' : 'ŠPATNÁ'}.\n\nMůžeš mi prosím podrobně vysvětlit, proč je správná odpověď správná a proč ty ostatní jsou nesprávné?`;
+    navigator.clipboard.writeText(promptText);
+    setAiCopied(true);
+    setTimeout(() => setAiCopied(false), 2500);
+  };
+
+  useEffect(() => {
+    const onMouse = () => { setOpKbMode(false); };
+    window.addEventListener('mousedown', onMouse);
+    return () => window.removeEventListener('mousedown', onMouse);
+  }, []);
+
+  useEffect(() => {
+    const h = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); handleEvaluate(); }
+      else if (e.key === 'ArrowRight') { setOpKbMode(false); next(); }
+      else if (e.key === 'ArrowLeft') { setOpKbMode(false); prev(); }
+      else if (e.key === 'Escape') onExit();
+      else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !evaluated) {
+        e.preventDefault();
+        if (!opKbModeRef.current) { setOpKbMode(true); setOpKbIdx(0); }
+        else { setOpKbIdx(p => e.key === 'ArrowUp' ? Math.max(0, p - 1) : Math.min(currentOptions.length - 1, p + 1)); }
+      } else if (e.key === 'Shift' && opKbModeRef.current && !evaluated) {
+        toggleOption(opKbIdxRef.current);
+      } else if (e.key >= '1' && e.key <= '9' && !evaluated) {
+        const index = parseInt(e.key, 10) - 1;
+        if (index >= 0 && index < currentOptions.length) toggleOption(index);
+      }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [evaluated, next, prev, handleEvaluate, onExit, toggleOption, currentOptions.length]);
+
+  let isIncorrect = false;
+  if (evaluated) {
+    let cT = 0, sC = 0, sW = 0;
+    currentOptions.forEach((opt, i) => {
+      if (opt.isCorrect) cT++;
+      if (selectedOptions.includes(i)) { if (opt.isCorrect) sC++; else sW++; }
+    });
+    if (!((sW === 0 && sC === cT && cT > 0))) isIncorrect = true;
+  }
+
+  return (
+    <div style={s.app}>
+      <Header tab="testing" onTabChange={() => onExit()} />
+      <main style={s.main}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <div style={s.studyTopRow}>
+            <button onClick={onExit} style={s.backBtn}><IconX size={16} />Zpět na nastavení</button>
+            <div style={s.studyTitle}>Vlastní test <span style={{ color: '#9ca3af', fontWeight: 400, fontSize: 14 }}>— {total} otázek</span></div>
+            <div style={{ color: '#9ca3af', fontSize: 13 }}>Otázka {idx + 1} / {total}</div>
+          </div>
+
+          <div style={s.progressBar}><div style={{ ...s.progressFill, width: `${pct}%` }} /></div>
+
+          {allAnswered && (
+            <div style={{ background: '#0c1a2e', border: '1px solid #1e3a5f', borderRadius: 12, padding: 20, marginBottom: 24, textAlign: 'center' }}>
+              <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Test dokončen!</div>
+              <div style={{ color: '#9ca3af', marginBottom: 16, fontSize: 14 }}>
+                Správně: <strong style={{ color: '#22c55e' }}>{stats.correct}</strong> · Částečně: <strong style={{ color: '#f59e0b' }}>{stats.partial}</strong> · Špatně: <strong style={{ color: '#ef4444' }}>{stats.wrong}</strong>
+              </div>
+              <button onClick={onRegenerate} style={{ ...s.primaryBtn, width: 'auto', padding: '12px 28px' }}>
+                🔀 Znovu — nový výběr ze stejných sad
+              </button>
+            </div>
+          )}
+
+          <div style={s.studyLayout}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={s.questionContainer}>
+                <div style={s.questionText}>{card.question}</div>
+                <div style={s.optionsList}>
+                  {currentOptions.map((opt, i) => {
+                    const isSelected = selectedOptions.includes(i);
+                    const isOpKbCursor = opKbMode && opKbIdx === i && !evaluated;
+                    let bg = '#1f2937', borderColor = '#374151', icon = null;
+                    let cbBg = isSelected ? '#3b82f6' : 'transparent';
+                    let cbBorder = isSelected ? '#3b82f6' : '#6b7280';
+                    let boxShadow = 'none';
+                    if (evaluated) {
+                      if (opt.isCorrect && isSelected) { bg = '#14532d'; borderColor = '#22c55e'; cbBg = '#22c55e'; cbBorder = '#22c55e'; icon = <span style={{ color: '#22c55e' }}>✓</span>; }
+                      else if (opt.isCorrect && !isSelected) { bg = '#1f2937'; borderColor = '#22c55e'; icon = <span style={{ color: '#22c55e' }}>✓</span>; }
+                      else if (!opt.isCorrect && isSelected) { bg = '#7f1d1d'; borderColor = '#ef4444'; cbBg = '#ef4444'; cbBorder = '#ef4444'; icon = <span style={{ color: '#ef4444' }}>✗</span>; }
+                    } else if (isSelected) { bg = '#1e3a5f'; borderColor = '#3b82f6'; }
+                    if (isOpKbCursor) {
+                      if (!isSelected) { bg = '#170826'; borderColor = '#7c3aed'; cbBorder = '#7c3aed'; }
+                      boxShadow = '0 0 0 3px #7c3aed33';
+                    }
+                    return (
+                      <div key={i} onClick={() => toggleOption(i)} style={{ ...s.optionItem, background: bg, borderColor, boxShadow }}>
+                        <div style={{ ...s.checkbox, borderColor: cbBorder, background: cbBg }}>
+                          {isSelected && <IconCheck size={12} color="#fff" />}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <kbd style={{ marginRight: 8, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#9ca3af' }}>{i + 1}</kbd>
+                          {opt.text}
+                        </div>
+                        {evaluated && <div style={{ width: 20, textAlign: 'center', fontWeight: 'bold' }}>{icon}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+                {isIncorrect && (
+                  <div style={{ marginTop: 24, display: 'flex', justifyContent: 'center' }}>
+                    <button onClick={copyAiPrompt} style={s.aiBtn}>
+                      {aiCopied ? '✨ Prompt zkopírován do schránky!' : '🤖 Zeptat se AI (Zkopírovat prompt)'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', marginTop: 24, gap: 12, flexWrap: 'wrap' }}>
+                <button onClick={prev} disabled={idx === 0} style={{ ...s.navIconBtn, opacity: idx === 0 ? 0.3 : 1 }}>
+                  <IconChevronLeft size={18} />Předchozí
+                </button>
+                <button onClick={onRegenerate} style={s.navIconBtn} title="Nový test ze stejných sad">
+                  <IconShuffle size={16} />Znovu
+                </button>
+                <div style={{ flex: 1, minWidth: 120, textAlign: 'center' }}>
+                  {!evaluated
+                    ? <button onClick={handleEvaluate} style={s.evaluateBtn}>Vyhodnotit (Enter)</button>
+                    : <button onClick={next} disabled={idx === total - 1} style={s.nextPrimaryBtn}>Další otázka (Enter)</button>
+                  }
+                </div>
+                <button onClick={next} disabled={idx === total - 1} style={{ ...s.navIconBtn, opacity: idx === total - 1 ? 0.3 : 1 }}>
+                  Další<IconChevronRight size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={s.statsBox}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{pct}%</span>
+                  <span style={{ color: '#9ca3af', fontSize: 13 }}>postup</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#22c55e' }} /><span>Správně</span><strong style={{ color: '#22c55e' }}>{stats.correct}</strong></div>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#f59e0b' }} /><span>Částečně</span><strong style={{ color: '#f59e0b' }}>{stats.partial}</strong></div>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#ef4444' }} /><span>Špatně</span><strong style={{ color: '#ef4444' }}>{stats.wrong}</strong></div>
+                  <div style={s.statsRow}><span style={{ ...s.statDot, background: '#6b7280' }} /><span>Neodp.</span><strong style={{ color: '#9ca3af' }}>{stats.unanswered}</strong></div>
+                </div>
+              </div>
+              <div style={s.statsBox}>
+                <div style={{ fontSize: 12, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Mapa otázek</div>
+                <CardGrid cards={cardResults} activeIdx={idx} onJump={setIdx} />
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 24, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+            Zkratky: <kbd>Enter</kbd> vyhodnotit / další · <kbd>←</kbd> <kbd>→</kbd> navigace · <kbd>↑</kbd> <kbd>↓</kbd> vybrat odpověď · <kbd>Shift</kbd> označit · <kbd>Esc</kbd> zpět
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
 function StudyView({ set, onExit, onStatusChange, onReset }) {
   const [idx, setIdx] = useState(0);
   const [selectedOptions, setSelectedOptions] = useState([]);
@@ -1137,6 +1526,144 @@ function StudyView({ set, onExit, onStatusChange, onReset }) {
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+function ImportExportTab({ sets, onImport }) {
+  const [importData, setImportData] = useState(null);
+  const [importError, setImportError] = useState('');
+  const [importDone, setImportDone] = useState(false);
+  const [exportDone, setExportDone] = useState(false);
+  const fileRef = useRef(null);
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(sets, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tester_zaloha_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExportDone(true);
+    setTimeout(() => setExportDone(false), 2500);
+  };
+
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportDone(false);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        if (!Array.isArray(parsed)) throw new Error();
+        parsed.forEach(s => { if (!s.id || !s.name || !Array.isArray(s.cards)) throw new Error(); });
+        setImportData(parsed);
+        setImportError('');
+      } catch {
+        setImportError('Soubor není platná záloha Testeru.');
+        setImportData(null);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleImport = (mode) => {
+    if (!importData) return;
+    onImport(importData, mode);
+    setImportData(null);
+    setImportDone(true);
+    if (fileRef.current) fileRef.current.value = '';
+    setTimeout(() => setImportDone(false), 3000);
+  };
+
+  const totalQuestions = sets.reduce((sum, s) => sum + s.cards.length, 0);
+  const importQuestions = importData ? importData.reduce((sum, s) => sum + s.cards.length, 0) : 0;
+
+  return (
+    <div style={s.container}>
+      <h1 style={s.h1}>Import / Export</h1>
+      <p style={s.subtitle}>Přenášej sady mezi zařízeními — stáhni zálohu a nahraj ji jinde</p>
+
+      <div style={s.card}>
+        <h2 style={s.h2}>Export — stáhnout zálohu</h2>
+        <p style={{ color: '#9ca3af', fontSize: 14, marginBottom: 16 }}>
+          Všechny tvoje sady se uloží do jednoho souboru. Ten pak nahraj na tabletu nebo jiném počítači.
+        </p>
+        {sets.length === 0 ? (
+          <div style={{ color: '#6b7280', fontSize: 14 }}>Žádné sady k exportu. Nejdřív vytvoř nějaký test.</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+              {sets.map(set => (
+                <div key={set.id} style={{ background: '#0a0a0a', border: '1px solid #1f2937', borderRadius: 8, padding: '6px 12px', fontSize: 13 }}>
+                  <span style={{ color: '#fff' }}>{set.name}</span>
+                  <span style={{ color: '#6b7280', marginLeft: 8 }}>{set.cards.length} otázek</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ color: '#9ca3af', fontSize: 13, marginBottom: 16 }}>
+              Celkem: <strong style={{ color: '#fff' }}>{sets.length}</strong> {sets.length === 1 ? 'sada' : sets.length < 5 ? 'sady' : 'sad'}, <strong style={{ color: '#fff' }}>{totalQuestions}</strong> otázek
+            </div>
+            <button onClick={handleExport} style={{ ...s.primaryBtn, width: 'auto', padding: '12px 24px', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <IconDownload size={16} />{exportDone ? '✓ Staženo!' : 'Stáhnout zálohu (.json)'}
+            </button>
+          </>
+        )}
+      </div>
+
+      <div style={s.card}>
+        <h2 style={s.h2}>Import — nahrát zálohu</h2>
+        <p style={{ color: '#9ca3af', fontSize: 14, marginBottom: 16 }}>
+          Nahraj zálohu (.json) ze zálohy. Sady přidáš k existujícím nebo jimi nahradíš vše.
+        </p>
+
+        <input ref={fileRef} type="file" accept=".json" onChange={handleFile} style={{ display: 'none' }} />
+        <button onClick={() => { setImportData(null); setImportError(''); fileRef.current?.click(); }} style={s.fileBtn}>
+          <IconUpload size={14} />Vybrat soubor zálohy (.json)
+        </button>
+
+        {importError && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#ef4444', fontSize: 14, marginTop: 12 }}>
+            <IconAlert size={15} />{importError}
+          </div>
+        )}
+
+        {importDone && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#22c55e', fontSize: 14, marginTop: 12 }}>
+            <IconCheck size={15} />Sady byly úspěšně importovány!
+          </div>
+        )}
+
+        {importData && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ ...s.parseStatus, marginBottom: 16 }}>
+              <div style={s.parseStatusRow}>
+                <IconCheck size={15} />
+                <span>Nalezeno <strong>{importData.length}</strong> {importData.length === 1 ? 'sada' : importData.length < 5 ? 'sady' : 'sad'} · <strong>{importQuestions}</strong> otázek</span>
+              </div>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              {importData.map((set, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #1f2937', fontSize: 13 }}>
+                  <span style={{ color: '#d1d5db' }}>{set.name}</span>
+                  <span style={{ color: '#6b7280' }}>{set.cards.length} otázek</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => handleImport('add')} style={{ ...s.primaryBtn, flex: 1 }}>
+                Přidat k existujícím
+              </button>
+              <button onClick={() => { if (confirm('Smazat všechny existující sady a nahradit importem?')) handleImport('replace'); }}
+                style={{ ...s.iconBtn, flex: 1, padding: '10px 16px', fontSize: 13, justifyContent: 'center', display: 'flex' }}>
+                Nahradit vše
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
